@@ -44,6 +44,7 @@ export async function GET(request: Request) {
     await recomputeAllDaysSince(supabase);
   } catch (err) {
     daysSinceRecomputeError = (err as Error).message;
+    console.error("[cron/nightly] recomputeAllDaysSince failed:", err);
   }
 
   const { data: profiles, error: profilesError } = await supabase
@@ -52,6 +53,7 @@ export async function GET(request: Request) {
     .eq("onboarding_completed", true);
 
   if (profilesError || !profiles) {
+    console.error("[cron/nightly] failed to load profiles:", profilesError);
     return NextResponse.json(
       { error: `Failed to load profiles: ${profilesError?.message ?? "unknown error"}` },
       { status: 500 },
@@ -68,6 +70,7 @@ export async function GET(request: Request) {
     } catch (err) {
       result.momentum = "error";
       result.error = `momentum: ${(err as Error).message}`;
+      console.error(`[cron/nightly] momentum failed for ${profile.id}:`, err);
     }
 
     try {
@@ -102,6 +105,7 @@ export async function GET(request: Request) {
       result.error = result.error
         ? `${result.error}; comeback: ${(err as Error).message}`
         : `comeback: ${(err as Error).message}`;
+      console.error(`[cron/nightly] comeback failed for ${profile.id}:`, err);
     }
 
     results.push(result);
