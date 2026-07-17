@@ -4,6 +4,7 @@ import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
 import { coachSystemPrompt, GENERATE_WORKOUT_PLAN_TOOL } from "@/lib/ai/persona";
 import { persistGeneratedPlan } from "@/lib/ai/plan";
 import { track } from "@/lib/analytics";
+import { checkAiRateLimit } from "@/lib/rate-limit";
 import type { Profile } from "@/types/database";
 
 export async function POST(request: Request) {
@@ -17,6 +18,11 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rateLimit = await checkAiRateLimit(supabase, user.id);
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: rateLimit.reason }, { status: 429 });
+  }
 
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
   if (!profile) return NextResponse.json({ error: "Profile not found" }, { status: 404 });

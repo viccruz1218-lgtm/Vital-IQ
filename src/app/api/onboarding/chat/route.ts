@@ -9,6 +9,7 @@ import {
   type SeedHabitInput,
 } from "@/lib/ai/persona";
 import { track } from "@/lib/analytics";
+import { checkAiRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
   const { message } = (await request.json()) as { message: string };
@@ -21,6 +22,11 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rateLimit = await checkAiRateLimit(supabase, user.id);
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: rateLimit.reason }, { status: 429 });
+  }
 
   const { data: history } = await supabase
     .from("chat_messages")
