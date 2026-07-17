@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/input";
 interface Msg {
   role: "user" | "assistant";
   content: string;
+  isError?: boolean;
 }
 
 export function CoachChat({ initialMessages }: { initialMessages: Msg[] }) {
@@ -43,7 +44,11 @@ export function CoachChat({ initialMessages }: { initialMessages: Msg[] }) {
     } catch (err) {
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: err instanceof Error ? err.message : "Vi couldn't respond — try again." },
+        {
+          role: "assistant",
+          content: err instanceof Error ? err.message : "Vi couldn't respond — try again.",
+          isError: true,
+        },
       ]);
     } finally {
       setSending(false);
@@ -57,9 +62,11 @@ export function CoachChat({ initialMessages }: { initialMessages: Msg[] }) {
           <div
             key={i}
             className={
-              m.role === "assistant"
-                ? "max-w-[80%] rounded-lg rounded-tl-sm bg-surface-2 px-3.5 py-2.5 text-sm"
-                : "ml-auto max-w-[80%] rounded-lg rounded-tr-sm bg-pulse px-3.5 py-2.5 text-sm text-pulse-fg"
+              m.role === "user"
+                ? "ml-auto max-w-[80%] rounded-lg rounded-tr-sm bg-pulse px-3.5 py-2.5 text-sm text-pulse-fg"
+                : m.isError
+                  ? "max-w-[80%] rounded-lg rounded-tl-sm border border-pulse/40 bg-pulse/10 px-3.5 py-2.5 text-sm text-pulse"
+                  : "max-w-[80%] rounded-lg rounded-tl-sm bg-surface-2 px-3.5 py-2.5 text-sm"
             }
           >
             {m.content}

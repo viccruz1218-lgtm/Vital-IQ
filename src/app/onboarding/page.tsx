@@ -8,7 +8,10 @@ import { Textarea } from "@/components/ui/input";
 interface Msg {
   role: "user" | "assistant";
   content: string;
+  isError?: boolean;
 }
+
+const TOTAL_QUESTIONS = 5;
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -16,12 +19,16 @@ export default function OnboardingPage() {
     {
       role: "assistant",
       content:
-        "Welcome to VitalIQ. Before we build your plan, I want to understand who you're becoming.\n\nWhat's the biggest change you want to make in your life over the next year?",
+        "Welcome to VitalIQ. Before we build your plan, I want to understand who you're becoming.\n\nWho are you becoming — what does that version of you six months from now look like?",
     },
   ]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
+  const [completed, setCompleted] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const questionsAnswered = messages.filter((m) => m.role === "user").length;
+  const currentStep = Math.min(TOTAL_QUESTIONS, questionsAnswered + 1);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,12 +53,17 @@ export default function OnboardingPage() {
       }
       setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
       if (data.onboardingCompleted) {
+        setCompleted(true);
         setTimeout(() => router.push("/dashboard"), 1200);
       }
     } catch (err) {
       setMessages((m) => [
         ...m,
-        { role: "assistant", content: err instanceof Error ? err.message : "Vi couldn't respond — try again." },
+        {
+          role: "assistant",
+          content: err instanceof Error ? err.message : "Vi couldn't respond — try again.",
+          isError: true,
+        },
       ]);
     } finally {
       setSending(false);
@@ -60,17 +72,22 @@ export default function OnboardingPage() {
 
   return (
     <div className="mx-auto flex h-screen w-full max-w-lg flex-col px-4 py-6">
-      <div className="mb-4 font-display text-lg font-semibold">
+      <div className="mb-1 font-display text-lg font-semibold">
         Vital<span className="text-pulse">IQ</span> onboarding
       </div>
+      <p className="mb-4 font-mono text-xs text-muted">
+        {completed ? "Building your first plan…" : `Question ${currentStep} of ${TOTAL_QUESTIONS}`}
+      </p>
       <div className="flex-1 space-y-3 overflow-y-auto pb-4">
         {messages.map((m, i) => (
           <div
             key={i}
             className={
-              m.role === "assistant"
-                ? "max-w-[85%] rounded-lg rounded-tl-sm bg-surface-2 px-3.5 py-2.5 text-sm"
-                : "ml-auto max-w-[85%] rounded-lg rounded-tr-sm bg-pulse px-3.5 py-2.5 text-sm text-pulse-fg"
+              m.role === "user"
+                ? "ml-auto max-w-[85%] rounded-lg rounded-tr-sm bg-pulse px-3.5 py-2.5 text-sm text-pulse-fg"
+                : m.isError
+                  ? "max-w-[85%] rounded-lg rounded-tl-sm border border-pulse/40 bg-pulse/10 px-3.5 py-2.5 text-sm text-pulse"
+                  : "max-w-[85%] rounded-lg rounded-tl-sm bg-surface-2 px-3.5 py-2.5 text-sm"
             }
           >
             {m.content}

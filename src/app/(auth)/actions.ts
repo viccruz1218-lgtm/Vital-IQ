@@ -8,7 +8,7 @@ export async function signUp(formData: FormData) {
   const password = String(formData.get("password") ?? "");
 
   const supabase = await createClient();
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email,
     password,
     options: {
@@ -18,6 +18,14 @@ export async function signUp(formData: FormData) {
 
   if (error) {
     redirect(`/signup?error=${encodeURIComponent(error.message)}`);
+  }
+
+  // If the Supabase project requires email confirmation, signUp() succeeds
+  // but returns no session yet. Redirecting to /onboarding (a protected
+  // route) would just bounce the brand-new user straight to /login with
+  // zero explanation — show a "check your email" state instead.
+  if (!data.session) {
+    redirect("/signup?checkEmail=1");
   }
 
   redirect("/onboarding");
@@ -64,6 +72,11 @@ export async function updatePassword(formData: FormData) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) {
+    // Redirect to /login, not back to /reset-password — the page itself
+    // already checks for a valid session before rendering the form (see
+    // reset-password/page.tsx), so getting here with no session means the
+    // link expired mid-submit. Sending them back to the same broken form
+    // would just loop.
     redirect(`/login?error=${encodeURIComponent("Your reset link expired — request a new one.")}`);
   }
 

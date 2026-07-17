@@ -4,7 +4,12 @@ let client: Anthropic | null = null;
 
 export function getAnthropic() {
   if (!client) {
-    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+    // The SDK default is a 10-minute timeout with 2 retries — a stuck
+    // request could otherwise tie up a route handler far longer than any
+    // real user would wait. 45s fails fast enough to still show a clean
+    // error (see each route's try/catch) well inside typical platform
+    // request limits.
+    client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY!, timeout: 45_000 });
   }
   return client;
 }

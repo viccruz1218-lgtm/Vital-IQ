@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Profile, WeeklyReview } from "@/types/database";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
 import { weeklyReviewSystemPrompt, SAVE_WEEKLY_REVIEW_TOOL } from "@/lib/ai/persona";
+import { track } from "@/lib/analytics";
 
 function toDateOnly(d: Date) {
   return d.toISOString().slice(0, 10);
@@ -214,6 +215,7 @@ export async function generateWeeklyReview(
     content = emptyWeekContent(data);
   } else {
     const { data: profile } = await supabase.from("profiles").select("*").eq("id", userId).single();
+    await track(supabase, userId, "ai_call", { route: "weekly-review" });
     const anthropic = getAnthropic();
     const response = await anthropic.messages.create({
       model: COACH_MODEL,
@@ -244,7 +246,28 @@ export async function generateWeeklyReview(
     })
     .select()
     .single();
-  if (error) throw error;
+
+  if (error) {
+    // unique(user_id, week_start) — a concurrent call (e.g. the cron and an
+    // on-demand request landing at the same moment) already saved this
+    // week's review. That's not a real failure: re-fetch and return it
+    // instead of surfacing an "error" for an outcome that isn't one.
+    if (error.code === "23505") {
+      const { data: raceWinner } = await supabase
+        .from("weekly_reviews")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("week_start", targetWeekStart)
+        .single();
+      if (raceWinner) return raceWinner;
+    }
+    throw error;
+  }
+
+  await track(supabase, userId, "weekly_review_generated", {
+    week_start: targetWeekStart,
+    consistency_rate: data.consistency_rate,
+  });
 
   return saved as WeeklyReview;
 }

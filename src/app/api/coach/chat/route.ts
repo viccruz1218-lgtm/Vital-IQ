@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
-import { coachSystemPrompt, GENERATE_WORKOUT_PLAN_TOOL } from "@/lib/ai/persona";
+import { coachSystemPrompt, GENERATE_WORKOUT_PLAN_TOOL, validateGeneratedPlanInput } from "@/lib/ai/persona";
 import { persistGeneratedPlan } from "@/lib/ai/plan";
 import { track } from "@/lib/analytics";
 import { checkAiRateLimit } from "@/lib/rate-limit";
@@ -40,29 +40,41 @@ export async function POST(request: Request) {
     .insert({ user_id: user.id, context: "coach", role: "user", content: message });
   await track(supabase, user.id, "ai_call", { route: "coach/chat" });
 
-  const anthropic = getAnthropic();
-  const response = await anthropic.messages.create({
-    model: COACH_MODEL,
-    max_tokens: 1024,
-    system: coachSystemPrompt(profile as Profile),
-    tools: [GENERATE_WORKOUT_PLAN_TOOL],
-    messages: [
-      ...(history ?? []).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-      { role: "user" as const, content: message },
-    ],
-  });
-
   let reply = "";
   let planUpdated = false;
 
-  for (const block of response.content) {
-    if (block.type === "text") {
-      reply += block.text;
-    } else if (block.type === "tool_use" && block.name === "generate_workout_plan") {
-      await persistGeneratedPlan(supabase, user.id, block.input as Parameters<typeof persistGeneratedPlan>[2]);
-      planUpdated = true;
-      if (!reply) reply = "Updated your plan — check the workout tab for the new session.";
+  try {
+    const anthropic = getAnthropic();
+    const response = await anthropic.messages.create({
+      model: COACH_MODEL,
+      max_tokens: 1024,
+      system: coachSystemPrompt(profile as Profile),
+      tools: [GENERATE_WORKOUT_PLAN_TOOL],
+      messages: [
+        ...(history ?? []).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
+        { role: "user" as const, content: message },
+      ],
+    });
+
+    for (const block of response.content) {
+      if (block.type === "text") {
+        reply += block.text;
+      } else if (block.type === "tool_use" && block.name === "generate_workout_plan") {
+        const plan = validateGeneratedPlanInput(block.input);
+        await persistGeneratedPlan(supabase, user.id, plan);
+        planUpdated = true;
+        if (!reply) reply = "Updated your plan — check the workout tab for the new session.";
+      }
     }
+  } catch (err) {
+    console.error("[coach/chat] failed:", err);
+    await supabase.from("chat_messages").insert({
+      user_id: user.id,
+      context: "coach",
+      role: "assistant",
+      content: "Sorry, something went wrong on my end — try sending that again.",
+    });
+    return NextResponse.json({ error: "Failed to process message" }, { status: 502 });
   }
 
   if (!reply) reply = "Got it.";

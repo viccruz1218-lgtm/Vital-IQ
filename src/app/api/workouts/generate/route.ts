@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
-import { GENERATE_WORKOUT_PLAN_TOOL, planGenerationPrompt } from "@/lib/ai/persona";
+import { GENERATE_WORKOUT_PLAN_TOOL, planGenerationPrompt, validateGeneratedPlanInput } from "@/lib/ai/persona";
 import { persistGeneratedPlan } from "@/lib/ai/plan";
 import { checkAiRateLimit } from "@/lib/rate-limit";
 import { track } from "@/lib/analytics";
@@ -24,27 +24,29 @@ export async function POST() {
 
   await track(supabase, user.id, "ai_call", { route: "workouts/generate" });
 
-  const anthropic = getAnthropic();
-  const response = await anthropic.messages.create({
-    model: COACH_MODEL,
-    max_tokens: 4096,
-    tools: [GENERATE_WORKOUT_PLAN_TOOL],
-    tool_choice: { type: "tool", name: "generate_workout_plan" },
-    messages: [{ role: "user", content: planGenerationPrompt(profile as Profile) }],
-  });
+  try {
+    const anthropic = getAnthropic();
+    const response = await anthropic.messages.create({
+      model: COACH_MODEL,
+      max_tokens: 4096,
+      tools: [GENERATE_WORKOUT_PLAN_TOOL],
+      tool_choice: { type: "tool", name: "generate_workout_plan" },
+      messages: [{ role: "user", content: planGenerationPrompt(profile as Profile) }],
+    });
 
-  const toolUse = response.content.find(
-    (b) => b.type === "tool_use" && b.name === "generate_workout_plan",
-  );
-  if (!toolUse || toolUse.type !== "tool_use") {
-    return NextResponse.json({ error: "Plan generation failed" }, { status: 502 });
+    const toolUse = response.content.find(
+      (b) => b.type === "tool_use" && b.name === "generate_workout_plan",
+    );
+    if (!toolUse || toolUse.type !== "tool_use") {
+      return NextResponse.json({ error: "Plan generation failed" }, { status: 502 });
+    }
+
+    const planInput = validateGeneratedPlanInput(toolUse.input);
+    const plan = await persistGeneratedPlan(supabase, user.id, planInput);
+
+    return NextResponse.json({ plan });
+  } catch (err) {
+    console.error("[workouts/generate] failed:", err);
+    return NextResponse.json({ error: "Failed to generate a plan — try again." }, { status: 502 });
   }
-
-  const plan = await persistGeneratedPlan(
-    supabase,
-    user.id,
-    toolUse.input as Parameters<typeof persistGeneratedPlan>[2],
-  );
-
-  return NextResponse.json({ plan });
 }

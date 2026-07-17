@@ -36,6 +36,98 @@ export interface SeedHabitInput {
   frequency: number;
 }
 
+// ---------------------------------------------------------------------------
+// Runtime validation for tool-use inputs. The JSON schemas above (enum,
+// required, etc.) are model-side GUIDANCE only — Anthropic doesn't enforce
+// them, so a response is untrusted structured data until it passes one of
+// these. Mirrors validateWeeklyReviewContent in src/lib/weekly-review.ts.
+// ---------------------------------------------------------------------------
+const GOALS: Goal[] = ["build_muscle", "lose_fat", "get_back_in_shape", "improve_performance"];
+const FITNESS_LEVELS: FitnessLevel[] = ["beginner", "intermediate", "advanced"];
+const COACHING_TONES: CoachingTone[] = ["direct", "encouraging"];
+const EQUIPMENT_OPTIONS = ["full_gym", "dumbbells", "bodyweight", "bands", "kettlebell"];
+const HABIT_CATEGORIES: HabitCategory[] = ["fitness", "nutrition", "lifestyle"];
+
+function isOneOf<T>(value: unknown, allowed: readonly T[]): value is T {
+  return (allowed as readonly unknown[]).includes(value);
+}
+
+export function validateOnboardingProfileInput(input: unknown): OnboardingProfileInput {
+  const obj = input as Partial<OnboardingProfileInput> | null;
+  if (!obj || typeof obj !== "object") throw new Error("save_onboarding_profile input must be an object");
+  if (typeof obj.identity_statement !== "string") throw new Error("identity_statement must be a string");
+  if (typeof obj.main_motivation !== "string") throw new Error("main_motivation must be a string");
+  if (typeof obj.quit_pattern !== "string") throw new Error("quit_pattern must be a string");
+  if (!isOneOf(obj.goal, GOALS)) throw new Error(`goal must be one of ${GOALS.join(", ")}`);
+  if (!isOneOf(obj.fitness_level, FITNESS_LEVELS)) {
+    throw new Error(`fitness_level must be one of ${FITNESS_LEVELS.join(", ")}`);
+  }
+  if (typeof obj.age !== "number" || obj.age < 13 || obj.age > 100) {
+    throw new Error("age must be a number between 13 and 100");
+  }
+  if (typeof obj.height_cm !== "number" || obj.height_cm <= 0) throw new Error("height_cm must be a positive number");
+  if (typeof obj.weight_kg !== "number" || obj.weight_kg <= 0) throw new Error("weight_kg must be a positive number");
+  if (!Array.isArray(obj.equipment) || !obj.equipment.every((e) => EQUIPMENT_OPTIONS.includes(e))) {
+    throw new Error(`equipment must be an array drawn from ${EQUIPMENT_OPTIONS.join(", ")}`);
+  }
+  if (
+    typeof obj.schedule_days_per_week !== "number" ||
+    obj.schedule_days_per_week < 1 ||
+    obj.schedule_days_per_week > 7
+  ) {
+    throw new Error("schedule_days_per_week must be between 1 and 7");
+  }
+  if (typeof obj.injuries !== "string") throw new Error("injuries must be a string");
+  if (!isOneOf(obj.coaching_tone, COACHING_TONES)) {
+    throw new Error(`coaching_tone must be one of ${COACHING_TONES.join(", ")}`);
+  }
+  return obj as OnboardingProfileInput;
+}
+
+export function validateSeedHabitInputs(input: unknown): SeedHabitInput[] {
+  const obj = input as { habits?: unknown } | null;
+  if (!obj || !Array.isArray(obj.habits)) throw new Error("seed_starter_habits input must have a habits array");
+  return obj.habits.map((raw, i) => {
+    const h = raw as Partial<SeedHabitInput> | null;
+    if (!h || typeof h.name !== "string" || !h.name.trim()) {
+      throw new Error(`habits[${i}].name must be a non-empty string`);
+    }
+    if (!isOneOf(h.category, HABIT_CATEGORIES)) {
+      throw new Error(`habits[${i}].category must be one of ${HABIT_CATEGORIES.join(", ")}`);
+    }
+    if (typeof h.frequency !== "number" || h.frequency < 1 || h.frequency > 7) {
+      throw new Error(`habits[${i}].frequency must be between 1 and 7`);
+    }
+    return { name: h.name, category: h.category, frequency: h.frequency };
+  });
+}
+
+export function validateGeneratedPlanInput(input: unknown): GeneratedPlanInput {
+  const obj = input as Partial<GeneratedPlanInput> | null;
+  if (!obj || typeof obj !== "object") throw new Error("generate_workout_plan input must be an object");
+  if (typeof obj.title !== "string" || !obj.title.trim()) throw new Error("title must be a non-empty string");
+  if (typeof obj.goal_summary !== "string") throw new Error("goal_summary must be a string");
+  if (!Array.isArray(obj.days) || obj.days.length === 0) throw new Error("days must be a non-empty array");
+  for (const [i, day] of obj.days.entries()) {
+    if (typeof day.day_label !== "string" || !day.day_label.trim()) {
+      throw new Error(`days[${i}].day_label must be a non-empty string`);
+    }
+    if (!Array.isArray(day.exercises) || day.exercises.length === 0) {
+      throw new Error(`days[${i}].exercises must be a non-empty array`);
+    }
+    for (const [j, ex] of day.exercises.entries()) {
+      if (typeof ex.exercise_name !== "string") throw new Error(`days[${i}].exercises[${j}].exercise_name must be a string`);
+      if (typeof ex.target_sets !== "number" || ex.target_sets < 1) {
+        throw new Error(`days[${i}].exercises[${j}].target_sets must be a positive number`);
+      }
+      if (typeof ex.target_reps !== "string" || !ex.target_reps.trim()) {
+        throw new Error(`days[${i}].exercises[${j}].target_reps must be a non-empty string`);
+      }
+    }
+  }
+  return obj as GeneratedPlanInput;
+}
+
 export const VI_IDENTITY = `You are Vi, the AI coach inside VitalIQ. You are equal parts elite strength coach, no-nonsense accountability partner, and data analyst. You are direct and warm, never saccharine — you don't do toxic positivity, and you don't shame missed workouts either. When someone misses a session you're curious, not disappointed: ask what got in the way. When you praise progress, tie it to a specific number or streak, never a generic "great job." Keep replies short — two or three sentences by default, more only when a real plan or explanation is needed.
 
 Banned phrases: "great job," "keep up the good work," "you've got this," "don't give up," or any other line that could be said to any user regardless of their data.`;

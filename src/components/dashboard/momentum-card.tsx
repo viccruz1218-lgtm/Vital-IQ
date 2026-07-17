@@ -23,6 +23,9 @@ export function MomentumCard({ score }: { score: MomentumScore | null }) {
         {score?.total_score ?? "—"}
         <span className="text-base text-muted">/100</span>
       </div>
+      {!score && (
+        <p className="mt-1 text-xs text-muted">Not enough data yet — log a workout, habit, or check-in today.</p>
+      )}
       <div className="mt-3 flex flex-col gap-1.5">
         {PILLARS.map((p) => {
           const raw = score ? (score[p.key] as number | null) : null;

@@ -22,6 +22,7 @@ export interface AdminMetrics {
   dau: number;
   wau: number;
   weeklyConsistencyRate: number;
+  weeklyConsistencyRatePreviousWeek: number;
   habitCompletionPct: number;
   workoutCompletionPct: number;
   averageMomentum: number | null;
@@ -53,6 +54,7 @@ export async function getAdminMetrics(supabase: SupabaseClient<Database>): Promi
       dau: 0,
       wau: 0,
       weeklyConsistencyRate: 0,
+      weeklyConsistencyRatePreviousWeek: 0,
       habitCompletionPct: 0,
       workoutCompletionPct: 0,
       averageMomentum: null,
@@ -112,6 +114,38 @@ export async function getAdminMetrics(supabase: SupabaseClient<Database>): Promi
   const totalCompleted = habitsCompleted + workoutDaysCompleted;
   const weeklyConsistencyRate = totalPlanned > 0 ? Math.min(100, Math.round((totalCompleted / totalPlanned) * 100)) : 0;
 
+  // --- Same metric, previous 8-day window (immediately preceding the one
+  // above) — the one comparison the admin dashboard was missing to actually
+  // answer "is VitalIQ changing behavior over time?" rather than just
+  // showing a single snapshot. Uses today's planned counts as the
+  // denominator for both windows since historical "planned" snapshots
+  // aren't tracked — an accepted simplification, same one admin-users.ts
+  // already makes for per-user WCR.
+  const previousWeekStart = daysAgoDateOnly(15);
+  const previousWeekEnd = daysAgoDateOnly(8);
+  const { count: habitsCompletedPreviousCount } =
+    habitIds.length > 0
+      ? await supabase
+          .from("habit_completion")
+          .select("id", { count: "exact", head: true })
+          .in("habit_id", habitIds)
+          .eq("completed", true)
+          .gte("date", previousWeekStart)
+          .lte("date", previousWeekEnd)
+      : { count: 0 };
+  const { data: previousWorkoutLogs } = await supabase
+    .from("workout_logs")
+    .select("user_id, performed_at")
+    .in("user_id", userIds)
+    .gte("performed_at", previousWeekStart)
+    .lte("performed_at", previousWeekEnd);
+  const previousWorkoutDaysCompleted = new Set(
+    (previousWorkoutLogs ?? []).map((w) => `${w.user_id}|${w.performed_at.slice(0, 10)}`),
+  ).size;
+  const previousTotalCompleted = (habitsCompletedPreviousCount ?? 0) + previousWorkoutDaysCompleted;
+  const weeklyConsistencyRatePreviousWeek =
+    totalPlanned > 0 ? Math.min(100, Math.round((previousTotalCompleted / totalPlanned) * 100)) : 0;
+
   // --- Average Momentum: each user's most recent score (not strictly
   // "today", since the nightly cron may not have run yet for the day).
   const { data: momentumRows } = await supabase
@@ -160,6 +194,7 @@ export async function getAdminMetrics(supabase: SupabaseClient<Database>): Promi
     dau,
     wau,
     weeklyConsistencyRate,
+    weeklyConsistencyRatePreviousWeek,
     habitCompletionPct,
     workoutCompletionPct,
     averageMomentum,

@@ -7,9 +7,25 @@ import { Card } from "@/components/ui/card";
 export default async function SignupPage({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string }>;
+  searchParams: Promise<{ error?: string; checkEmail?: string }>;
 }) {
-  const { error } = await searchParams;
+  const { error, checkEmail } = await searchParams;
+
+  if (checkEmail) {
+    return (
+      <div className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-6">
+        <Link href="/" className="mb-8 font-display text-lg font-semibold">
+          Vital<span className="text-pulse">IQ</span>
+        </Link>
+        <Card>
+          <h1 className="mb-1 text-xl font-semibold">Check your email</h1>
+          <p className="text-sm text-muted">
+            We sent you a confirmation link — click it to activate your account and start onboarding.
+          </p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-sm flex-col justify-center px-6">

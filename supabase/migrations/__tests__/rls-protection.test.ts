@@ -79,3 +79,24 @@ describe("0008_weekly_reviews.sql (static check)", () => {
     expect(sql).not.toMatch(/for delete/i);
   });
 });
+
+describe("0009_alpha_readiness_rls_fixes.sql (static check)", () => {
+  const sql = readMigration("0009_alpha_readiness_rls_fixes.sql");
+
+  it("grants insert and update on days_since_events scoped to the owner", () => {
+    expect(sql).toMatch(/create policy "days_since_events: insert own" on public\.days_since_events/);
+    expect(sql).toMatch(/create policy "days_since_events: update own" on public\.days_since_events/);
+  });
+
+  it("grants update on check_ins scoped to the owner", () => {
+    expect(sql).toMatch(/create policy "check_ins: update own" on public\.check_ins/);
+  });
+
+  it("grants update on habit_completion scoped through the owning habit", () => {
+    expect(sql).toMatch(/create policy "habit_completion: update own" on public\.habit_completion/);
+  });
+
+  it("adds an index on workout_logs.plan_day_id", () => {
+    expect(sql).toMatch(/create index workout_logs_plan_day_idx on public\.workout_logs \(plan_day_id\)/);
+  });
+});

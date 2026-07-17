@@ -155,5 +155,22 @@ export async function GET(request: Request) {
     errors: results.filter((r) => r.error).map((r) => ({ userId: r.userId, error: r.error })),
   };
 
-  return NextResponse.json(summary);
+  console.log(
+    `[cron/nightly] done — ${summary.processed_users} users, ` +
+      `${summary.momentum_errors} momentum errors, ${summary.comeback_errors} comeback errors, ` +
+      `${summary.weekly_review_errors} weekly review errors, ${summary.comeback_sent} comebacks sent, ` +
+      `${summary.weekly_reviews_generated} weekly reviews generated`,
+  );
+
+  // recomputeAllDaysSince/resetStaleHabitStreaks affect every user (not just
+  // one), unlike the per-user momentum/comeback/weekly-review results above
+  // which are expected to occasionally fail in isolation. A 200 here despite
+  // one of these failing would look like a clean run to anything (including
+  // Vercel Cron's own monitoring) that only checks HTTP status.
+  const maintenanceFailed = Boolean(daysSinceRecomputeError || staleStreaksResetError);
+  if (maintenanceFailed) {
+    console.error("[cron/nightly] maintenance step(s) failed — see days_since_recompute_error/stale_streaks_reset_error above");
+  }
+
+  return NextResponse.json(summary, { status: maintenanceFailed ? 500 : 200 });
 }

@@ -90,7 +90,7 @@ export default async function MomentumPage() {
       </Card>
 
       {previous && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Card>
             <CardLabel>What improved</CardLabel>
             {improved.length === 0 ? (

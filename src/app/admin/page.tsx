@@ -40,7 +40,11 @@ export default async function AdminMetricsPage() {
         <MetricCard
           label="Weekly Consistency Rate"
           value={`${metrics.weeklyConsistencyRate}%`}
-          hint="North Star — habits + workouts vs. planned"
+          hint={(() => {
+            const delta = metrics.weeklyConsistencyRate - metrics.weeklyConsistencyRatePreviousWeek;
+            const trend = delta > 0 ? `↑ ${delta}` : delta < 0 ? `↓ ${Math.abs(delta)}` : "flat";
+            return `${trend} vs. prior week (${metrics.weeklyConsistencyRatePreviousWeek}%)`;
+          })()}
         />
         <MetricCard label="DAU" value={String(metrics.dau)} hint="active in last 24h" />
         <MetricCard label="WAU" value={String(metrics.wau)} hint="active in last 7d" />

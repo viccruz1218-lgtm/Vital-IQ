@@ -35,6 +35,9 @@ export default async function WorkoutHistoryPage() {
       </div>
 
       <div className="grid gap-4">
+        {logs && logs.length > 0 && trends.every((t) => t.history.length <= 1) && (
+          <p className="text-sm text-muted">Log one more session to start seeing progress trends here.</p>
+        )}
         {trends
           .filter((t) => t.history.length > 1)
           .map((t) => {
