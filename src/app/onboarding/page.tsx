@@ -41,10 +41,18 @@ export default function OnboardingPage() {
         body: JSON.stringify({ message: text }),
       });
       const data = await res.json();
+      if (!res.ok || !data.reply) {
+        throw new Error(data.error ?? "Vi couldn't respond — try again.");
+      }
       setMessages((m) => [...m, { role: "assistant", content: data.reply }]);
       if (data.onboardingCompleted) {
         setTimeout(() => router.push("/dashboard"), 1200);
       }
+    } catch (err) {
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: err instanceof Error ? err.message : "Vi couldn't respond — try again." },
+      ]);
     } finally {
       setSending(false);
     }

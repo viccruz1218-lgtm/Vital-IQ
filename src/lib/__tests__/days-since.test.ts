@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createFakeSupabase } from "./fake-supabase";
-import { isUserInactive, isDueForComeback } from "@/lib/days-since";
+import { isUserInactive, claimComebackSlot } from "@/lib/days-since";
 
 const USER_ID = "user-1";
 
@@ -82,45 +82,37 @@ describe("isUserInactive", () => {
   });
 });
 
-describe("isDueForComeback", () => {
-  it("is false during the cooldown window even if the user is inactive", async () => {
-    const supabase = createFakeSupabase({
-      workout_logs: [],
-      check_ins: [],
-      chat_messages: [],
-      habits: [],
-      habit_completion: [],
-    });
-
-    // Sent 3 days ago — inside the 7-day cooldown.
-    const due = await isDueForComeback(supabase, USER_ID, "2026-01-12T00:00:00Z");
-    expect(due).toBe(false);
+describe("claimComebackSlot", () => {
+  it("claims successfully when never sent before", async () => {
+    const supabase = createFakeSupabase({ profiles: [{ id: USER_ID, last_comeback_sent_at: null }] });
+    expect(await claimComebackSlot(supabase, USER_ID)).toBe(true);
   });
 
-  it("is true again once the cooldown has fully elapsed and inactivity persists", async () => {
+  it("refuses to claim during the cooldown window", async () => {
     const supabase = createFakeSupabase({
-      workout_logs: [],
-      check_ins: [],
-      chat_messages: [],
-      habits: [],
-      habit_completion: [],
+      profiles: [{ id: USER_ID, last_comeback_sent_at: "2026-01-12T00:00:00.000Z" }], // 3 days ago
     });
-
-    // Sent 8 days ago — cooldown has elapsed.
-    const due = await isDueForComeback(supabase, USER_ID, "2026-01-07T00:00:00Z");
-    expect(due).toBe(true);
+    expect(await claimComebackSlot(supabase, USER_ID)).toBe(false);
   });
 
-  it("is false when never sent before but the user is active", async () => {
+  it("claims again once the cooldown has fully elapsed", async () => {
     const supabase = createFakeSupabase({
-      workout_logs: [{ user_id: USER_ID, performed_at: "2026-01-14" }],
-      check_ins: [],
-      chat_messages: [],
-      habits: [],
-      habit_completion: [],
+      profiles: [{ id: USER_ID, last_comeback_sent_at: "2026-01-07T00:00:00.000Z" }], // 8 days ago
     });
+    expect(await claimComebackSlot(supabase, USER_ID)).toBe(true);
+  });
 
-    const due = await isDueForComeback(supabase, USER_ID, null);
-    expect(due).toBe(false);
+  it("only lets ONE of two concurrent/overlapping cron runs claim the same night", async () => {
+    // Models the exact race the cron used to have: two overlapping
+    // invocations both see the user as due, but only the first UPDATE can
+    // match the (is-null-or-stale) WHERE clause — the second sees the row
+    // the first one already wrote and correctly loses the race.
+    const supabase = createFakeSupabase({ profiles: [{ id: USER_ID, last_comeback_sent_at: null }] });
+
+    const firstRun = await claimComebackSlot(supabase, USER_ID);
+    const secondRun = await claimComebackSlot(supabase, USER_ID);
+
+    expect(firstRun).toBe(true);
+    expect(secondRun).toBe(false);
   });
 });

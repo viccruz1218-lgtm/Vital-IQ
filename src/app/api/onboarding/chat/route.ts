@@ -66,9 +66,12 @@ export async function POST(request: Request) {
       await serviceRoleSupabase
         .from("profiles")
         .update({
-          identity_statement: input.identity_statement,
-          main_motivation: input.main_motivation,
-          quit_pattern: input.quit_pattern,
+          // These are free text and get re-injected into every future coach
+          // system prompt (see coachSystemPrompt) — capped to bound how much
+          // user-controlled text can ride along in a persistent context.
+          identity_statement: input.identity_statement?.slice(0, 300),
+          main_motivation: input.main_motivation?.slice(0, 300),
+          quit_pattern: input.quit_pattern?.slice(0, 300),
           goal: input.goal,
           fitness_level: input.fitness_level,
           age: input.age,
@@ -76,7 +79,7 @@ export async function POST(request: Request) {
           weight_kg: input.weight_kg,
           equipment: input.equipment,
           schedule_days_per_week: input.schedule_days_per_week,
-          injuries: input.injuries,
+          injuries: input.injuries?.slice(0, 300),
           coaching_tone: input.coaching_tone,
           onboarding_completed: true,
           updated_at: new Date().toISOString(),

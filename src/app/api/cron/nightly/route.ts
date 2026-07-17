@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
-import { recomputeAllDaysSince, isDueForComeback, markComebackSent } from "@/lib/days-since";
+import { recomputeAllDaysSince, isUserInactive, claimComebackSlot } from "@/lib/days-since";
 import { calculateMomentumScore } from "@/lib/momentum";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
 import { comebackSystemPrompt } from "@/lib/ai/persona";
 import { track } from "@/lib/analytics";
 import type { Profile } from "@/types/database";
+
+// Each user in the loop can involve a full Anthropic call — with even a
+// modest alpha cohort this can exceed Vercel's default function duration.
+// Requires a plan that supports it; if the account's max is lower, this is
+// silently capped rather than erroring, so verify against the actual plan.
+export const maxDuration = 300;
 
 interface UserResult {
   userId: string;
@@ -65,8 +71,8 @@ export async function GET(request: Request) {
     }
 
     try {
-      const due = await isDueForComeback(supabase, profile.id, profile.last_comeback_sent_at);
-      if (due) {
+      const inactive = await isUserInactive(supabase, profile.id);
+      if (inactive) {
         const response = await anthropic.messages.create({
           model: COACH_MODEL,
           max_tokens: 300,
@@ -78,12 +84,17 @@ export async function GET(request: Request) {
         const text = message && message.type === "text" ? message.text : "";
 
         if (text) {
-          await supabase
-            .from("chat_messages")
-            .insert({ user_id: profile.id, context: "coach", role: "assistant", content: text });
-          await track(supabase, profile.id, "comeback_message_sent", {});
-          await markComebackSent(supabase, profile.id);
-          result.comeback = "sent";
+          // Claim right before writing, not before the Anthropic call — an
+          // AI failure shouldn't burn tonight's slot, but the actual send
+          // must be serialized against a concurrent/overlapping cron run.
+          const claimed = await claimComebackSlot(supabase, profile.id);
+          if (claimed) {
+            await supabase
+              .from("chat_messages")
+              .insert({ user_id: profile.id, context: "coach", role: "assistant", content: text });
+            await track(supabase, profile.id, "comeback_message_sent", {});
+            result.comeback = "sent";
+          }
         }
       }
     } catch (err) {

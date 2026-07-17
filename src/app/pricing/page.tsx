@@ -11,7 +11,7 @@ export default function PricingPage() {
       <h1 className="mb-2 font-display text-3xl font-semibold">Your coach is always on.</h1>
       <p className="mb-10 text-muted">Pick a plan. Cancel anytime.</p>
 
-      <div className="grid grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         <Card>
           <CardLabel>Free</CardLabel>
           <div className="mt-2 mb-4 font-display text-2xl">$0</div>

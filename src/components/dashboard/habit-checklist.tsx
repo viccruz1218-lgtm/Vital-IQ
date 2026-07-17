@@ -13,14 +13,19 @@ export function HabitChecklist({ habits }: { habits: HabitWithStatus[] }) {
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
   const [justCompleted, setJustCompleted] = useState<Set<string>>(new Set());
+  const [errorHabitId, setErrorHabitId] = useState<string | null>(null);
 
   async function complete(habitId: string) {
     if (pending) return;
     setPending(habitId);
+    setErrorHabitId(null);
     try {
-      await fetch(`/api/habits/${habitId}/complete`, { method: "POST" });
+      const res = await fetch(`/api/habits/${habitId}/complete`, { method: "POST" });
+      if (!res.ok) throw new Error("failed");
       setJustCompleted((prev) => new Set(prev).add(habitId));
       router.refresh();
+    } catch {
+      setErrorHabitId(habitId);
     } finally {
       setPending(null);
     }
@@ -59,9 +64,14 @@ export function HabitChecklist({ habits }: { habits: HabitWithStatus[] }) {
                 </button>
                 <span className={`text-sm ${done ? "text-muted line-through" : ""}`}>{h.name}</span>
               </div>
-              <span className="font-mono text-xs text-muted">
-                {h.current_streak > 0 ? `${h.current_streak}d streak` : `${h.frequency}x/wk`}
-              </span>
+              <div className="flex items-center gap-2">
+                {errorHabitId === h.id && (
+                  <span className="text-xs text-pulse">Couldn&rsquo;t save — try again</span>
+                )}
+                <span className="font-mono text-xs text-muted">
+                  {h.current_streak > 0 ? `${h.current_streak}d streak` : `${h.frequency}x/wk`}
+                </span>
+              </div>
             </li>
           );
         })}

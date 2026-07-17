@@ -33,8 +33,32 @@ export default async function DashboardLayout({ children }: { children: React.Re
   const nav = NAV.filter((item) => !item.fullOnly || !isControl);
 
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-5xl">
-      <nav className="flex w-52 flex-none flex-col gap-1 border-r border-border px-4 py-6">
+    <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col md:flex-row">
+      {/* Below md: a horizontally-scrollable top bar — the fixed 208px
+          sidebar used to be the only nav and was unusable at phone widths. */}
+      <div className="flex items-center gap-3 border-b border-border px-4 py-3 md:hidden">
+        <Link href="/dashboard" className="flex-none font-display text-base font-semibold">
+          Vital<span className="text-pulse">IQ</span>
+        </Link>
+        <div className="flex flex-1 gap-1 overflow-x-auto">
+          {nav.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="flex-none whitespace-nowrap rounded-md px-2.5 py-1.5 text-sm text-muted hover:bg-surface-2 hover:text-foreground"
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+        <form action={signOut} className="flex-none">
+          <Button type="submit" variant="ghost" size="sm" className="px-2.5">
+            Sign out
+          </Button>
+        </form>
+      </div>
+
+      <nav className="hidden w-52 flex-none flex-col gap-1 border-r border-border px-4 py-6 md:flex">
         <Link href="/dashboard" className="mb-6 font-display text-base font-semibold">
           Vital<span className="text-pulse">IQ</span>
         </Link>
@@ -53,7 +77,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           </Button>
         </form>
       </nav>
-      <main className="min-w-0 flex-1 px-6 py-6">{children}</main>
+      <main className="min-w-0 flex-1 px-4 py-6 md:px-6">{children}</main>
     </div>
   );
 }

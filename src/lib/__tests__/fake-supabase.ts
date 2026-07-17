@@ -37,10 +37,31 @@ export function createFakeSupabase(
     let rows: Row[] = [...tableRows];
     let countMode = false;
     let pendingUpdate: Row | null = null;
+    let returnRepresentation = false;
 
     const query = {
       select(_cols?: string, opts?: { count?: string; head?: boolean }) {
         if (opts?.count) countMode = true;
+        returnRepresentation = true;
+        return query;
+      },
+      or(filterExpr: string) {
+        // Minimal parser for the specific shapes this codebase emits:
+        // comma-separated "col.op.value" clauses, OR'd together. Not a
+        // general PostgREST filter-string parser.
+        const clauses = filterExpr.split(",").map((clause) => {
+          const [col, op, val] = clause.split(".");
+          return { col, op, val };
+        });
+        rows = rows.filter((r) =>
+          clauses.some(({ col, op, val }) => {
+            const actual = getPath(r, col);
+            if (op === "is") return val === "null" ? actual == null : String(actual) === val;
+            if (op === "lt") return (actual as string) < val;
+            if (op === "gt") return (actual as string) > val;
+            return false;
+          }),
+        );
         return query;
       },
       eq(col: string, val: unknown) {
@@ -61,6 +82,10 @@ export function createFakeSupabase(
       },
       lt(col: string, val: unknown) {
         rows = rows.filter((r) => (getPath(r, col) as string | number) < (val as string | number));
+        return query;
+      },
+      gt(col: string, val: unknown) {
+        rows = rows.filter((r) => (getPath(r, col) as string | number) > (val as string | number));
         return query;
       },
       in(col: string, vals: unknown[]) {
@@ -134,7 +159,7 @@ export function createFakeSupabase(
         }
         if (pendingUpdate) {
           for (const r of rows) Object.assign(r, pendingUpdate);
-          resolve({ data: null, error: null });
+          resolve({ data: returnRepresentation ? rows : null, error: null });
           return;
         }
         resolve({ data: rows, error: null, count: countMode ? rows.length : undefined });

@@ -28,7 +28,7 @@ export default function Home() {
         </Link>
       </div>
 
-      <div className="mt-20 grid grid-cols-3 gap-4">
+      <div className="mt-20 grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardLabel>Coach</CardLabel>
           <p className="mt-1 text-sm">Vi messages first, every morning — no logging fatigue.</p>

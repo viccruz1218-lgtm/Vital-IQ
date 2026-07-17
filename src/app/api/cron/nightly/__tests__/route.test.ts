@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // momentum/comeback math is covered separately in momentum.test.ts and
 // days-since.test.ts — this test only exercises the route's control flow.
 
-const { fakeSupabase, calculateMomentumScoreMock, isDueForComebackMock } = vi.hoisted(() => {
+const { fakeSupabase, calculateMomentumScoreMock, isUserInactiveMock, claimComebackSlotMock } = vi.hoisted(() => {
   const profiles = [
     { id: "user-ok", onboarding_completed: true, last_comeback_sent_at: null },
     { id: "user-momentum-fails", onboarding_completed: true, last_comeback_sent_at: null },
@@ -18,10 +18,11 @@ const { fakeSupabase, calculateMomentumScoreMock, isDueForComebackMock } = vi.ho
       if (userId === "user-momentum-fails") throw new Error("momentum boom");
       return {};
     }),
-    isDueForComebackMock: vi.fn(async (_supabase: unknown, userId: string) => {
+    isUserInactiveMock: vi.fn(async (_supabase: unknown, userId: string) => {
       if (userId === "user-comeback-fails") throw new Error("comeback boom");
-      return userId === "user-ok";
+      return userId === "user-ok"; // only user-ok is inactive/due; momentum-fails is active, so skipped
     }),
+    claimComebackSlotMock: vi.fn(async () => true),
   };
 });
 
@@ -34,8 +35,8 @@ vi.mock("@/lib/momentum", () => ({ calculateMomentumScore: calculateMomentumScor
 
 vi.mock("@/lib/days-since", () => ({
   recomputeAllDaysSince: vi.fn(async () => {}),
-  isDueForComeback: isDueForComebackMock,
-  markComebackSent: vi.fn(async () => {}),
+  isUserInactive: isUserInactiveMock,
+  claimComebackSlot: claimComebackSlotMock,
 }));
 
 vi.mock("@/lib/ai/anthropic", () => ({
@@ -77,5 +78,20 @@ describe("GET /api/cron/nightly", () => {
     expect(body.errors.map((e: { userId: string }) => e.userId).sort()).toEqual(
       ["user-comeback-fails", "user-momentum-fails"].sort(),
     );
+  });
+
+  it("does not count a comeback as sent when it loses the atomic claim race", async () => {
+    claimComebackSlotMock.mockResolvedValueOnce(false);
+    const { GET } = await import("@/app/api/cron/nightly/route");
+    const res = await GET(
+      new Request("http://localhost/api/cron/nightly", {
+        headers: { authorization: "Bearer test-secret" },
+      }),
+    );
+    const body = await res.json();
+
+    // user-ok is the only one isUserInactive resolves true for, and its
+    // claim is stubbed to lose the race this run — nobody should get "sent".
+    expect(body.comeback_sent).toBe(0);
   });
 });

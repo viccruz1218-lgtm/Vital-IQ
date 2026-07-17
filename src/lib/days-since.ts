@@ -113,22 +113,28 @@ export async function isUserInactive(
   return true;
 }
 
-// A user is due for a comeback message only if they're genuinely inactive
-// AND haven't already been sent one within the same threshold window — this
-// is the cooldown that keeps a still-inactive user from being messaged
-// every single night.
-export async function isDueForComeback(
+// Atomically claims the right to send this user a comeback message tonight.
+// This used to be a separate "isDueForComeback" cooldown check followed by a
+// "markComebackSent" write — a check-then-act race: if the cron overlaps
+// with itself (a manual retry, a slow invocation still running when the next
+// one fires), both runs could pass the cooldown check before either one
+// wrote last_comeback_sent_at, and the user would get two comeback messages
+// the same night. Folding the cooldown check into the UPDATE's WHERE clause
+// makes Postgres itself the point of serialization: only one concurrent
+// caller's update can match this row and return it via `.select()` — the
+// other sees zero affected rows and knows it lost the race.
+export async function claimComebackSlot(
   supabase: SupabaseClient<Database>,
   userId: string,
-  lastComebackSentAt: string | null,
+  thresholdDays: number = INACTIVITY_THRESHOLD_DAYS,
 ): Promise<boolean> {
-  if (lastComebackSentAt) {
-    const daysSinceLastComeback = daysBetween(lastComebackSentAt.slice(0, 10), toDateOnly(new Date()));
-    if (daysSinceLastComeback < INACTIVITY_THRESHOLD_DAYS) return false;
-  }
-  return isUserInactive(supabase, userId);
-}
-
-export async function markComebackSent(supabase: SupabaseClient<Database>, userId: string) {
-  await supabase.from("profiles").update({ last_comeback_sent_at: new Date().toISOString() }).eq("id", userId);
+  const cutoff = isoDaysAgo(thresholdDays);
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ last_comeback_sent_at: new Date().toISOString() })
+    .eq("id", userId)
+    .or(`last_comeback_sent_at.is.null,last_comeback_sent_at.lt.${cutoff}`)
+    .select("id");
+  if (error) throw error;
+  return (data?.length ?? 0) > 0;
 }

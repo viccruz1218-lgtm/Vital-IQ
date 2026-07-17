@@ -36,6 +36,7 @@ export function WorkoutLogger({ planDayId, dayLabel, exercises }: Props) {
   );
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ overload: OverloadResult[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   function updateSet(exId: string, index: number, field: keyof SetRow, value: string) {
     setSets((prev) => {
@@ -51,6 +52,7 @@ export function WorkoutLogger({ planDayId, dayLabel, exercises }: Props) {
 
   async function finish() {
     setSaving(true);
+    setError(null);
     const payload = exercises.flatMap((ex) =>
       sets[ex.id]
         .filter((s) => s.reps !== "" && s.weight !== "")
@@ -67,15 +69,23 @@ export function WorkoutLogger({ planDayId, dayLabel, exercises }: Props) {
       return;
     }
 
-    const res = await fetch("/api/workouts/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planDayId, sets: payload }),
-    });
-    const data = await res.json();
-    setResult(data);
-    setSaving(false);
-    router.refresh();
+    try {
+      const res = await fetch("/api/workouts/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ planDayId, sets: payload }),
+      });
+      const data = await res.json();
+      if (!res.ok || !Array.isArray(data.overload)) {
+        throw new Error(data.error ?? "Something went wrong saving this workout.");
+      }
+      setResult(data);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't save this workout — check your connection and try again.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   if (result) {
@@ -148,8 +158,9 @@ export function WorkoutLogger({ planDayId, dayLabel, exercises }: Props) {
           </div>
         </Card>
       ))}
+      {error && <p className="text-sm text-pulse">{error}</p>}
       <Button onClick={finish} disabled={saving} size="lg">
-        {saving ? "Saving…" : "Finish workout"}
+        {saving ? "Saving…" : error ? "Try again" : "Finish workout"}
       </Button>
     </div>
   );
