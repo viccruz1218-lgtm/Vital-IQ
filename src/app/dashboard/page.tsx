@@ -61,6 +61,9 @@ export default async function DashboardPage() {
 
     momentumScore = score ?? null;
     daysSinceEvents = events ?? [];
+    if (momentumScore) {
+      await track(supabase, user.id, "momentum_viewed", { total_score: momentumScore.total_score });
+    }
 
     const habitIds = (habits ?? []).map((h) => h.id);
     const { data: completions } =
@@ -85,7 +88,7 @@ export default async function DashboardPage() {
         <p className="text-sm text-muted">Here&rsquo;s where things stand today.</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardLabel>Streak</CardLabel>
           <div className="mt-1 font-mono text-3xl text-pulse">{streak?.current_streak ?? 0}</div>
@@ -106,7 +109,7 @@ export default async function DashboardPage() {
       </div>
 
       {isFull && (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <MomentumCard score={momentumScore} />
           <DaysSinceCard events={daysSinceEvents} />
         </div>

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { getStripe } from "@/lib/stripe";
 import { createServiceRoleClient } from "@/lib/supabase/server";
+import { track } from "@/lib/analytics";
 import type { SubscriptionStatus } from "@/types/database";
 
 const STATUS_MAP: Record<string, SubscriptionStatus> = {
@@ -17,19 +18,41 @@ const STATUS_MAP: Record<string, SubscriptionStatus> = {
 async function upsertFromSubscription(customerId: string, subscription: Stripe.Subscription) {
   const supabase = createServiceRoleClient();
   const item = subscription.items.data[0];
+  const fields = {
+    stripe_customer_id: customerId,
+    stripe_subscription_id: subscription.id,
+    status: STATUS_MAP[subscription.status] ?? "none",
+    price_id: item?.price.id ?? null,
+    current_period_end: item?.current_period_end
+      ? new Date(item.current_period_end * 1000).toISOString()
+      : null,
+    updated_at: new Date().toISOString(),
+  };
 
-  await supabase
+  // .update() only touches a row that already exists for this customer. If
+  // the checkout route's earlier upsert never landed (or this customer was
+  // created another way), matching zero rows here used to mean the
+  // subscription status was silently dropped — no error, no retry, Stripe
+  // gets a 200 and moves on. Recover the user_id from the Stripe customer's
+  // metadata (set at customer creation, see
+  // src/app/api/stripe/checkout/route.ts) and upsert directly instead.
+  const { data: updated, error } = await supabase
     .from("subscriptions")
-    .update({
-      stripe_subscription_id: subscription.id,
-      status: STATUS_MAP[subscription.status] ?? "none",
-      price_id: item?.price.id ?? null,
-      current_period_end: item?.current_period_end
-        ? new Date(item.current_period_end * 1000).toISOString()
-        : null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("stripe_customer_id", customerId);
+    .update(fields)
+    .eq("stripe_customer_id", customerId)
+    .select("user_id");
+  if (error) throw error;
+  if (updated && updated.length > 0) return;
+
+  const stripe = getStripe();
+  const customer = await stripe.customers.retrieve(customerId);
+  const userId = !customer.deleted ? customer.metadata?.user_id : undefined;
+  if (!userId) {
+    throw new Error(`No subscriptions row and no user_id metadata for Stripe customer ${customerId}`);
+  }
+
+  const { error: upsertError } = await supabase.from("subscriptions").upsert({ user_id: userId, ...fields });
+  if (upsertError) throw upsertError;
 }
 
 export async function POST(request: Request) {
@@ -51,6 +74,12 @@ export async function POST(request: Request) {
       if (session.customer && session.subscription) {
         const subscription = await stripe.subscriptions.retrieve(session.subscription as string);
         await upsertFromSubscription(session.customer as string, subscription);
+        if (session.client_reference_id) {
+          const supabase = createServiceRoleClient();
+          await track(supabase, session.client_reference_id, "pro_upgrade", {
+            price_id: subscription.items.data[0]?.price.id ?? null,
+          });
+        }
       }
       break;
     }
