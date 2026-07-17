@@ -94,7 +94,7 @@ export async function calculateMomentumScore(supabase: SupabaseClient<Database>,
     for (const row of (completions ?? []) as HabitCompletionRow[]) activeDates.add(row.date);
   }
 
-  const consistencyScore = Math.round((activeDates.size / 7) * 100);
+  const consistencyScore = Math.min(100, Math.round((activeDates.size / 7) * 100));
 
   const totalScore = Math.round(
     trainingScore * 0.25 + habitsScore * 0.25 + nutritionScore * 0.25 + consistencyScore * 0.25,
