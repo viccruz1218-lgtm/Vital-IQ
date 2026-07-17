@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { HabitChecklist } from "@/components/dashboard/habit-checklist";
 import { CreateHabitForm } from "@/components/dashboard/create-habit-form";
+import { ArchiveHabitButton } from "@/components/dashboard/archive-habit-button";
 import { Card, CardLabel } from "@/components/ui/card";
 import { requireFullExperience } from "@/lib/experiment";
 
@@ -66,10 +67,11 @@ export default async function HabitsPage() {
                     <span className="font-medium">{h.name}</span>
                     <span className="ml-2 font-mono text-xs capitalize text-muted">{h.category}</span>
                   </div>
-                  <div className="flex gap-4 font-mono text-xs text-muted">
+                  <div className="flex items-center gap-4 font-mono text-xs text-muted">
                     <span>streak {h.current_streak}</span>
                     <span>best {h.longest_streak}</span>
                     <span>{Math.round(h.completion_rate * 100)}% / 30d</span>
+                    <ArchiveHabitButton habitId={h.id} habitName={h.name} />
                   </div>
                 </div>
               </Card>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/server";
 import { recomputeAllDaysSince, isUserInactive, claimComebackSlot } from "@/lib/days-since";
+import { resetStaleHabitStreaks } from "@/lib/habits";
 import { calculateMomentumScore } from "@/lib/momentum";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
 import { comebackSystemPrompt } from "@/lib/ai/persona";
@@ -45,6 +46,14 @@ export async function GET(request: Request) {
   } catch (err) {
     daysSinceRecomputeError = (err as Error).message;
     console.error("[cron/nightly] recomputeAllDaysSince failed:", err);
+  }
+
+  let staleStreaksResetError: string | null = null;
+  try {
+    await resetStaleHabitStreaks(supabase);
+  } catch (err) {
+    staleStreaksResetError = (err as Error).message;
+    console.error("[cron/nightly] resetStaleHabitStreaks failed:", err);
   }
 
   const { data: profiles, error: profilesError } = await supabase
@@ -118,6 +127,7 @@ export async function GET(request: Request) {
     comeback_sent: results.filter((r) => r.comeback === "sent").length,
     comeback_errors: results.filter((r) => r.comeback === "error").length,
     days_since_recompute_error: daysSinceRecomputeError,
+    stale_streaks_reset_error: staleStreaksResetError,
     errors: results.filter((r) => r.error).map((r) => ({ userId: r.userId, error: r.error })),
   };
 

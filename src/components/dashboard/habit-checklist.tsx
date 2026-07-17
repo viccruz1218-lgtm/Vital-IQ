@@ -13,16 +13,31 @@ export function HabitChecklist({ habits }: { habits: HabitWithStatus[] }) {
   const router = useRouter();
   const [pending, setPending] = useState<string | null>(null);
   const [justCompleted, setJustCompleted] = useState<Set<string>>(new Set());
+  const [justUndone, setJustUndone] = useState<Set<string>>(new Set());
   const [errorHabitId, setErrorHabitId] = useState<string | null>(null);
 
-  async function complete(habitId: string) {
+  async function toggle(habitId: string, currentlyDone: boolean) {
     if (pending) return;
     setPending(habitId);
     setErrorHabitId(null);
     try {
-      const res = await fetch(`/api/habits/${habitId}/complete`, { method: "POST" });
+      const res = await fetch(`/api/habits/${habitId}/complete`, { method: currentlyDone ? "DELETE" : "POST" });
       if (!res.ok) throw new Error("failed");
-      setJustCompleted((prev) => new Set(prev).add(habitId));
+      if (currentlyDone) {
+        setJustUndone((prev) => new Set(prev).add(habitId));
+        setJustCompleted((prev) => {
+          const next = new Set(prev);
+          next.delete(habitId);
+          return next;
+        });
+      } else {
+        setJustCompleted((prev) => new Set(prev).add(habitId));
+        setJustUndone((prev) => {
+          const next = new Set(prev);
+          next.delete(habitId);
+          return next;
+        });
+      }
       router.refresh();
     } catch {
       setErrorHabitId(habitId);
@@ -45,16 +60,17 @@ export function HabitChecklist({ habits }: { habits: HabitWithStatus[] }) {
       <CardLabel>Today&rsquo;s habits</CardLabel>
       <ul className="mt-2 flex flex-col gap-2">
         {habits.map((h) => {
-          const done = h.completedToday || justCompleted.has(h.id);
+          const done = (h.completedToday || justCompleted.has(h.id)) && !justUndone.has(h.id);
           return (
             <li key={h.id} className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2.5">
                 <button
                   type="button"
-                  disabled={done || pending === h.id}
-                  onClick={() => complete(h.id)}
-                  aria-label={done ? `${h.name} completed` : `Mark ${h.name} complete`}
-                  className={`flex h-5 w-5 flex-none items-center justify-center rounded-full border text-[0.6rem] ${
+                  disabled={pending === h.id}
+                  onClick={() => toggle(h.id, done)}
+                  aria-label={done ? `Undo ${h.name}` : `Mark ${h.name} complete`}
+                  title={done ? "Tap to undo" : undefined}
+                  className={`flex h-5 w-5 flex-none items-center justify-center rounded-full border text-[0.6rem] disabled:opacity-50 ${
                     done
                       ? "border-pulse bg-pulse text-pulse-fg"
                       : "border-border bg-surface text-transparent hover:border-pulse"

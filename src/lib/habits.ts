@@ -11,6 +11,63 @@ function daysBefore(dateStr: string, n: number) {
   return toDateOnly(d);
 }
 
+// Shared by completeHabit and uncompleteHabit — both mutate habit_completion
+// and then need the same current_streak/longest_streak/completion_rate
+// recompute against whatever the table now looks like.
+//
+// Deliberately walks backward from the MOST RECENT remaining completed date,
+// not from "today" — undoing today's completion must not always collapse
+// the streak to 0. If yesterday and the day before are still completed,
+// the streak is 2, not 0, even though today itself is now incomplete.
+async function recomputeHabitStats(supabase: SupabaseClient<Database>, habitId: string) {
+  const { data: habit } = await supabase.from("habits").select("longest_streak").eq("id", habitId).single();
+
+  const { data: completions } = await supabase
+    .from("habit_completion")
+    .select("date, completed")
+    .eq("habit_id", habitId)
+    .eq("completed", true)
+    .order("date", { ascending: false })
+    .limit(400);
+
+  const completedDates = (completions ?? []).map((c) => c.date);
+  const completedSet = new Set(completedDates);
+
+  let streak = 0;
+  if (completedDates.length > 0) {
+    let cursor = completedDates[0];
+    while (completedSet.has(cursor)) {
+      streak += 1;
+      cursor = daysBefore(cursor, 1);
+    }
+  }
+
+  const today = toDateOnly(new Date());
+  const thirtyDaysAgo = daysBefore(today, 30);
+  const { count: completedLast30 } = await supabase
+    .from("habit_completion")
+    .select("id", { count: "exact", head: true })
+    .eq("habit_id", habitId)
+    .eq("completed", true)
+    .gte("date", thirtyDaysAgo)
+    .lte("date", today);
+
+  const completionRate = Math.round(((completedLast30 ?? 0) / 30) * 100) / 100;
+
+  // Math.max means longest_streak only ever grows here — an uncomplete that
+  // drops the current streak below a past peak must never erase that peak.
+  await supabase
+    .from("habits")
+    .update({
+      current_streak: streak,
+      longest_streak: Math.max(habit?.longest_streak ?? 0, streak),
+      completion_rate: completionRate,
+    })
+    .eq("id", habitId);
+
+  return { current_streak: streak, completion_rate: completionRate };
+}
+
 // Marks a habit complete for `date` (defaults to today) and recomputes the
 // denormalized current_streak / longest_streak / completion_rate on the
 // habits row — these are read on every dashboard load, so they're kept
@@ -27,46 +84,54 @@ export async function completeHabit(
     .upsert({ habit_id: habitId, date: completedOn, completed: true }, { onConflict: "habit_id,date" });
   if (insertError) throw insertError;
 
-  const { data: habit } = await supabase.from("habits").select("longest_streak").eq("id", habitId).single();
+  return recomputeHabitStats(supabase, habitId);
+}
 
-  // Walk backward from the completed date through consecutive completed
-  // days to compute the current streak.
-  const { data: completions } = await supabase
+// Undoes a mis-tapped completion. RLS (see migration 0006) only allows
+// deleting today's row, so this can't be used to rewrite history that
+// momentum scoring or the admin dashboard already read.
+export async function uncompleteHabit(
+  supabase: SupabaseClient<Database>,
+  habitId: string,
+  date?: string,
+) {
+  const targetDate = date ?? toDateOnly(new Date());
+
+  const { error: deleteError } = await supabase
     .from("habit_completion")
-    .select("date, completed")
+    .delete()
     .eq("habit_id", habitId)
-    .eq("completed", true)
-    .lte("date", completedOn)
-    .order("date", { ascending: false })
-    .limit(400);
+    .eq("date", targetDate);
+  if (deleteError) throw deleteError;
 
-  const completedDates = new Set((completions ?? []).map((c) => c.date));
-  let streak = 0;
-  let cursor = completedOn;
-  while (completedDates.has(cursor)) {
-    streak += 1;
-    cursor = daysBefore(cursor, 1);
-  }
+  return recomputeHabitStats(supabase, habitId);
+}
 
-  const thirtyDaysAgo = daysBefore(completedOn, 30);
-  const { count: completedLast30 } = await supabase
-    .from("habit_completion")
-    .select("id", { count: "exact", head: true })
-    .eq("habit_id", habitId)
-    .eq("completed", true)
-    .gte("date", thirtyDaysAgo)
-    .lte("date", completedOn);
+// Nightly: current_streak is only ever recomputed at completion time above
+// — a habit nobody has touched in weeks would otherwise keep displaying
+// its last-known streak forever. A streak is broken once a full calendar
+// day has passed with no completion (yesterday AND today both missed).
+export async function resetStaleHabitStreaks(supabase: SupabaseClient<Database>) {
+  const yesterday = daysBefore(toDateOnly(new Date()), 1);
 
-  const completionRate = Math.round(((completedLast30 ?? 0) / 30) * 100) / 100;
-
-  await supabase
+  const { data: habits } = await supabase
     .from("habits")
-    .update({
-      current_streak: streak,
-      longest_streak: Math.max(habit?.longest_streak ?? 0, streak),
-      completion_rate: completionRate,
-    })
-    .eq("id", habitId);
+    .select("id")
+    .eq("status", "active")
+    .gt("current_streak", 0);
 
-  return { current_streak: streak, completion_rate: completionRate };
+  for (const habit of habits ?? []) {
+    const { data: recent } = await supabase
+      .from("habit_completion")
+      .select("date")
+      .eq("habit_id", habit.id)
+      .eq("completed", true)
+      .gte("date", yesterday)
+      .limit(1)
+      .maybeSingle();
+
+    if (!recent) {
+      await supabase.from("habits").update({ current_streak: 0 }).eq("id", habit.id);
+    }
+  }
 }

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { completeHabit } from "@/lib/habits";
+import { completeHabit, uncompleteHabit } from "@/lib/habits";
 import { touchDaysSinceEvent } from "@/lib/days-since";
 import { calculateMomentumScore } from "@/lib/momentum";
 import { track } from "@/lib/analytics";
@@ -40,6 +40,34 @@ export async function POST(request: Request, context: RouteContext<"/api/habits/
 
   await calculateMomentumScore(supabase, user.id);
   await track(supabase, user.id, "habit_completed", { habit_id: id, category: habit.category });
+
+  return NextResponse.json(result);
+}
+
+// Undoes a mis-tapped completion. RLS scopes the underlying delete to
+// today's row only (migration 0006) — this can't rewrite completion
+// history, only correct the same day's mistake.
+export async function DELETE(request: Request, context: RouteContext<"/api/habits/[id]/complete">) {
+  const { id } = await context.params;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { data: habit } = await supabase.from("habits").select("id, user_id").eq("id", id).single();
+  if (!habit || habit.user_id !== user.id) {
+    return NextResponse.json({ error: "Habit not found" }, { status: 404 });
+  }
+
+  const result = await uncompleteHabit(supabase, id);
+
+  // Deliberately not reversing the Days Since "touch" here — this is for
+  // correcting an accidental tap moments after it happens, and the nightly
+  // recompute already corrects any transient staleness the next night.
+  await calculateMomentumScore(supabase, user.id);
+  await track(supabase, user.id, "habit_uncompleted", { habit_id: id });
 
   return NextResponse.json(result);
 }

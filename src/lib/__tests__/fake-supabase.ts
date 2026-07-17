@@ -38,6 +38,7 @@ export function createFakeSupabase(
     let rows: Row[] = [...tableRows];
     let countMode = false;
     let pendingUpdate: Row | null = null;
+    let pendingDelete = false;
     let returnRepresentation = false;
 
     const query = {
@@ -171,12 +172,11 @@ export function createFakeSupabase(
         return query;
       },
       delete() {
-        const matched = [...rows];
-        for (const r of matched) {
-          const idx = tableRows.indexOf(r);
-          if (idx >= 0) tableRows.splice(idx, 1);
-        }
-        rows = matched;
+        // Deferred, like update() — real callers always chain .delete()
+        // BEFORE .eq()/.is() filters (e.g. .delete().eq("id", x)), so acting
+        // immediately here would delete the whole unfiltered table instead
+        // of just the rows the subsequent filters narrow down to.
+        pendingDelete = true;
         return query;
       },
       then(resolve: (v: { data: Row[] | null; error: FakeError | null; count?: number }) => void) {
@@ -187,6 +187,14 @@ export function createFakeSupabase(
         }
         if (pendingUpdate) {
           for (const r of rows) Object.assign(r, pendingUpdate);
+          resolve({ data: returnRepresentation ? rows : null, error: null });
+          return;
+        }
+        if (pendingDelete) {
+          for (const r of rows) {
+            const idx = tableRows.indexOf(r);
+            if (idx >= 0) tableRows.splice(idx, 1);
+          }
           resolve({ data: returnRepresentation ? rows : null, error: null });
           return;
         }
