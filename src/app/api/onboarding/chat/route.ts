@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceRoleClient } from "@/lib/supabase/server";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
 import {
   ONBOARDING_SYSTEM_PROMPT,
@@ -53,7 +53,11 @@ export async function POST(request: Request) {
       reply += block.text;
     } else if (block.type === "tool_use" && block.name === "save_onboarding_profile") {
       const input = block.input as OnboardingProfileInput;
-      await supabase
+      // onboarding_completed is a protected column (see migration 0004) —
+      // this write must go through the service-role client, not the
+      // per-session client, or the DB trigger rejects it.
+      const serviceRoleSupabase = createServiceRoleClient();
+      await serviceRoleSupabase
         .from("profiles")
         .update({
           identity_statement: input.identity_statement,
