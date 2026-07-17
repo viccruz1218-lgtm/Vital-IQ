@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardLabel } from "@/components/ui/card";
 import { ManageBillingButton } from "@/components/dashboard/manage-billing-button";
+import { DeleteAccountButton } from "@/components/dashboard/delete-account-button";
 
 export default async function SettingsPage() {
   const supabase = await createClient();
@@ -61,6 +62,13 @@ export default async function SettingsPage() {
             Upgrade to Premium
           </Link>
         )}
+      </Card>
+
+      <Card>
+        <CardLabel>Danger zone</CardLabel>
+        <div className="mt-3">
+          <DeleteAccountButton />
+        </div>
       </Card>
     </div>
   );
