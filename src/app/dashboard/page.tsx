@@ -6,8 +6,9 @@ import { Button } from "@/components/ui/button";
 import { MomentumCard } from "@/components/dashboard/momentum-card";
 import { DaysSinceCard } from "@/components/dashboard/days-since-card";
 import { HabitChecklist } from "@/components/dashboard/habit-checklist";
+import { WeeklyReviewCard } from "@/components/dashboard/weekly-review-card";
 import { track } from "@/lib/analytics";
-import type { DaysSinceEvent, Habit, MomentumScore } from "@/types/database";
+import type { DaysSinceEvent, Habit, MomentumScore, WeeklyReview } from "@/types/database";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -50,14 +51,23 @@ export default async function DashboardPage() {
   let momentumScore: MomentumScore | null = null;
   let daysSinceEvents: DaysSinceEvent[] = [];
   let habitsWithStatus: (Habit & { completedToday: boolean })[] = [];
+  let latestReview: WeeklyReview | null = null;
 
   if (isFull) {
     const today = new Date().toISOString().slice(0, 10);
-    const [{ data: score }, { data: events }, { data: habits }] = await Promise.all([
+    const [{ data: score }, { data: events }, { data: habits }, { data: review }] = await Promise.all([
       supabase.from("momentum_scores").select("*").eq("user_id", user.id).eq("score_date", today).maybeSingle(),
       supabase.from("days_since_events").select("*").eq("user_id", user.id),
       supabase.from("habits").select("*").eq("user_id", user.id).eq("status", "active"),
+      supabase
+        .from("weekly_reviews")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("week_start", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
     ]);
+    latestReview = review ?? null;
 
     momentumScore = score ?? null;
     daysSinceEvents = events ?? [];
@@ -114,6 +124,8 @@ export default async function DashboardPage() {
           <DaysSinceCard events={daysSinceEvents} />
         </div>
       )}
+
+      {isFull && <WeeklyReviewCard review={latestReview} />}
 
       <Card>
         <CardLabel>Today&rsquo;s workout</CardLabel>

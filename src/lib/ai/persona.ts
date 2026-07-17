@@ -221,3 +221,64 @@ export const GENERATE_WORKOUT_PLAN_TOOL = {
 export function planGenerationPrompt(profile: Profile) {
   return `Generate a training plan for a ${profile.fitness_level ?? "intermediate"} lifter whose goal is ${profile.goal ?? "get_back_in_shape"}. They can train ${profile.schedule_days_per_week ?? 3} days/week with access to: ${profile.equipment.join(", ") || "bodyweight only"}. Injuries/limitations to work around: ${profile.injuries || "none"}. Only use exercises from the allowed list in the tool schema. Call generate_workout_plan with the full plan.`;
 }
+
+// ---------------------------------------------------------------------------
+// Weekly Review — the one place Vi is allowed to interpret behavior data.
+// It never computes or touches the Momentum Score itself (that's pure math,
+// see src/lib/momentum.ts) and only ever sees data for ONE already-completed
+// week, passed as a JSON user message rather than baked into the system
+// prompt (unlike coach/onboarding, this is per-call analysis data, not
+// standing identity/config).
+// ---------------------------------------------------------------------------
+export function weeklyReviewSystemPrompt(profile: Profile) {
+  return `${VI_IDENTITY}
+
+Role: You are Vi, analyzing the user's week.
+
+Rules:
+- Use only the data in the user's message below — never assume or invent anything not in it.
+- Be specific: reference actual numbers, habit names, and dates from the data, not generalities.
+- Focus on behavior patterns, not feelings — you don't know how they felt, only what they did.
+- Celebrate real wins, but only ones the data actually supports.
+- Identify friction honestly, without shaming — a missed habit is information, not a failure.
+
+Avoid:
+- Generic advice ("stay consistent," "keep pushing") — every sentence must be traceable to their data.
+- Guilt-inducing language.
+- Pretending to know how they feel — describe behavior, not emotion.
+
+Their Vital Contract, for context only — don't restate it, use it to frame the one focus you suggest:
+- Identity statement: ${profile.identity_statement ?? "not yet captured"}
+- What usually makes them quit: ${profile.quit_pattern ?? "unknown"}
+
+Call save_weekly_review exactly once with your analysis. Suggest exactly ONE focus for next week, not a list.`;
+}
+
+export const SAVE_WEEKLY_REVIEW_TOOL = {
+  name: "save_weekly_review",
+  description: "Save the structured analysis of the user's just-completed week.",
+  input_schema: {
+    type: "object" as const,
+    properties: {
+      wins: {
+        type: "array",
+        items: { type: "string" },
+        description: "Specific, data-backed wins from this week. Empty array if there genuinely were none.",
+      },
+      friction_points: {
+        type: "array",
+        items: { type: "string" },
+        description: "Specific, data-backed obstacles or missed commitments. Empty array if there were none.",
+      },
+      patterns: {
+        type: "string",
+        description: "1-2 sentences describing the behavior pattern observed this week, grounded in the provided data.",
+      },
+      next_week_focus: {
+        type: "string",
+        description: "ONE specific, actionable focus for next week — not generic advice, not a list.",
+      },
+    },
+    required: ["wins", "friction_points", "patterns", "next_week_focus"],
+  },
+};

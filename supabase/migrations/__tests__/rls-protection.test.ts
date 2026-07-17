@@ -60,3 +60,22 @@ describe("0007_momentum_recovery_pillar.sql (static check)", () => {
     expect(sql).toMatch(/add column recovery_score int/);
   });
 });
+
+describe("0008_weekly_reviews.sql (static check)", () => {
+  const sql = readMigration("0008_weekly_reviews.sql");
+
+  it("creates weekly_reviews with RLS enabled", () => {
+    expect(sql).toMatch(/create table public\.weekly_reviews/);
+    expect(sql).toMatch(/alter table public\.weekly_reviews enable row level security/);
+  });
+
+  it("grants select and insert scoped to the owning user", () => {
+    expect(sql).toMatch(/create policy "weekly_reviews: select own" on public\.weekly_reviews\s+for select using \(auth\.uid\(\) = user_id\)/);
+    expect(sql).toMatch(/create policy "weekly_reviews: insert own" on public\.weekly_reviews\s+for insert with check \(auth\.uid\(\) = user_id\)/);
+  });
+
+  it("grants no update or delete policy — reviews are immutable once created", () => {
+    expect(sql).not.toMatch(/for update/i);
+    expect(sql).not.toMatch(/for delete/i);
+  });
+});

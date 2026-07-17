@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Verifies the cron route's fault-isolation contract: one user's momentum
 // calculation throwing, or one user's comeback evaluation throwing, must
@@ -6,25 +6,27 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // momentum/comeback math is covered separately in momentum.test.ts and
 // days-since.test.ts — this test only exercises the route's control flow.
 
-const { fakeSupabase, calculateMomentumScoreMock, isUserInactiveMock, claimComebackSlotMock } = vi.hoisted(() => {
-  const profiles = [
-    { id: "user-ok", onboarding_completed: true, last_comeback_sent_at: null },
-    { id: "user-momentum-fails", onboarding_completed: true, last_comeback_sent_at: null },
-    { id: "user-comeback-fails", onboarding_completed: true, last_comeback_sent_at: null },
-  ];
-  return {
-    fakeSupabase: { profiles, chat_messages: [] as Record<string, unknown>[], analytics_events: [] as Record<string, unknown>[] },
-    calculateMomentumScoreMock: vi.fn(async (_supabase: unknown, userId: string) => {
-      if (userId === "user-momentum-fails") throw new Error("momentum boom");
-      return {};
-    }),
-    isUserInactiveMock: vi.fn(async (_supabase: unknown, userId: string) => {
-      if (userId === "user-comeback-fails") throw new Error("comeback boom");
-      return userId === "user-ok"; // only user-ok is inactive/due; momentum-fails is active, so skipped
-    }),
-    claimComebackSlotMock: vi.fn(async () => true),
-  };
-});
+const { fakeSupabase, calculateMomentumScoreMock, isUserInactiveMock, claimComebackSlotMock, generateWeeklyReviewMock } =
+  vi.hoisted(() => {
+    const profiles = [
+      { id: "user-ok", onboarding_completed: true, last_comeback_sent_at: null, experiment_group: "full" },
+      { id: "user-momentum-fails", onboarding_completed: true, last_comeback_sent_at: null, experiment_group: "full" },
+      { id: "user-comeback-fails", onboarding_completed: true, last_comeback_sent_at: null, experiment_group: "full" },
+    ];
+    return {
+      fakeSupabase: { profiles, chat_messages: [] as Record<string, unknown>[], analytics_events: [] as Record<string, unknown>[] },
+      calculateMomentumScoreMock: vi.fn(async (_supabase: unknown, userId: string) => {
+        if (userId === "user-momentum-fails") throw new Error("momentum boom");
+        return {};
+      }),
+      isUserInactiveMock: vi.fn(async (_supabase: unknown, userId: string) => {
+        if (userId === "user-comeback-fails") throw new Error("comeback boom");
+        return userId === "user-ok"; // only user-ok is inactive/due; momentum-fails is active, so skipped
+      }),
+      claimComebackSlotMock: vi.fn(async () => true),
+      generateWeeklyReviewMock: vi.fn(async () => ({})),
+    };
+  });
 
 vi.mock("@/lib/supabase/server", async () => {
   const { createFakeSupabase } = await import("@/lib/__tests__/fake-supabase");
@@ -39,6 +41,8 @@ vi.mock("@/lib/days-since", () => ({
   claimComebackSlot: claimComebackSlotMock,
 }));
 
+vi.mock("@/lib/weekly-review", () => ({ generateWeeklyReview: generateWeeklyReviewMock }));
+
 vi.mock("@/lib/ai/anthropic", () => ({
   getAnthropic: () => ({
     messages: { create: vi.fn(async () => ({ content: [{ type: "text", text: "Hey, come back." }] })) },
@@ -50,6 +54,15 @@ vi.mock("@/lib/analytics", () => ({ track: vi.fn(async () => {}) }));
 
 beforeEach(() => {
   process.env.CRON_SECRET = "test-secret";
+  generateWeeklyReviewMock.mockClear();
+  vi.useFakeTimers();
+  // 2026-01-18 is a Sunday (getUTCDay() === 0) — the weekly review
+  // generation gate. Individual tests override this to check the gate.
+  vi.setSystemTime(new Date("2026-01-18T08:00:00Z"));
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("GET /api/cron/nightly", () => {
@@ -78,6 +91,24 @@ describe("GET /api/cron/nightly", () => {
     expect(body.errors.map((e: { userId: string }) => e.userId).sort()).toEqual(
       ["user-comeback-fails", "user-momentum-fails"].sort(),
     );
+    // Frozen to a Sunday — weekly review generation runs for all 3 users.
+    expect(body.weekly_reviews_generated).toBe(3);
+    expect(generateWeeklyReviewMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not attempt weekly review generation on a non-Sunday", async () => {
+    vi.setSystemTime(new Date("2026-01-21T08:00:00Z")); // a Wednesday
+    const { GET } = await import("@/app/api/cron/nightly/route");
+    const res = await GET(
+      new Request("http://localhost/api/cron/nightly", {
+        headers: { authorization: "Bearer test-secret" },
+      }),
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.weekly_reviews_generated).toBe(0);
+    expect(generateWeeklyReviewMock).not.toHaveBeenCalled();
   });
 
   it("does not count a comeback as sent when it loses the atomic claim race", async () => {

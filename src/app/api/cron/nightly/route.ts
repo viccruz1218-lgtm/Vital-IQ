@@ -3,6 +3,7 @@ import { createServiceRoleClient } from "@/lib/supabase/server";
 import { recomputeAllDaysSince, isUserInactive, claimComebackSlot } from "@/lib/days-since";
 import { resetStaleHabitStreaks } from "@/lib/habits";
 import { calculateMomentumScore } from "@/lib/momentum";
+import { generateWeeklyReview } from "@/lib/weekly-review";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
 import { comebackSystemPrompt } from "@/lib/ai/persona";
 import { track } from "@/lib/analytics";
@@ -18,6 +19,7 @@ interface UserResult {
   userId: string;
   momentum: "ok" | "error";
   comeback: "sent" | "skipped" | "error";
+  weeklyReview: "generated" | "skipped" | "error";
   error?: string;
 }
 
@@ -69,10 +71,15 @@ export async function GET(request: Request) {
     );
   }
 
+  // Weekly Review covers Sunday-Saturday (see getPreviousWeekStart) — the
+  // week is only fully complete once Sunday has arrived, so generation
+  // only runs that one day rather than on every nightly run.
+  const isWeekBoundaryDay = new Date().getUTCDay() === 0;
+
   const results: UserResult[] = [];
 
   for (const profile of profiles as Profile[]) {
-    const result: UserResult = { userId: profile.id, momentum: "ok", comeback: "skipped" };
+    const result: UserResult = { userId: profile.id, momentum: "ok", comeback: "skipped", weeklyReview: "skipped" };
 
     try {
       await calculateMomentumScore(supabase, profile.id);
@@ -117,6 +124,21 @@ export async function GET(request: Request) {
       console.error(`[cron/nightly] comeback failed for ${profile.id}:`, err);
     }
 
+    // Full-experience only, matching Habits/Momentum/Coach — the control
+    // arm never sees the consistency engine this reviews.
+    if (isWeekBoundaryDay && profile.experiment_group !== "control") {
+      try {
+        await generateWeeklyReview(supabase, profile.id);
+        result.weeklyReview = "generated";
+      } catch (err) {
+        result.weeklyReview = "error";
+        result.error = result.error
+          ? `${result.error}; weekly_review: ${(err as Error).message}`
+          : `weekly_review: ${(err as Error).message}`;
+        console.error(`[cron/nightly] weekly review failed for ${profile.id}:`, err);
+      }
+    }
+
     results.push(result);
   }
 
@@ -126,6 +148,8 @@ export async function GET(request: Request) {
     momentum_errors: results.filter((r) => r.momentum === "error").length,
     comeback_sent: results.filter((r) => r.comeback === "sent").length,
     comeback_errors: results.filter((r) => r.comeback === "error").length,
+    weekly_reviews_generated: results.filter((r) => r.weeklyReview === "generated").length,
+    weekly_review_errors: results.filter((r) => r.weeklyReview === "error").length,
     days_since_recompute_error: daysSinceRecomputeError,
     stale_streaks_reset_error: staleStreaksResetError,
     errors: results.filter((r) => r.error).map((r) => ({ userId: r.userId, error: r.error })),

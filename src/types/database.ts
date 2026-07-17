@@ -205,6 +205,19 @@ export type ProcessedStripeEvent = {
   processed_at: string;
 };
 
+export type WeeklyReview = {
+  id: string;
+  user_id: string;
+  week_start: string;
+  wins: string[];
+  friction_points: string[];
+  patterns: string;
+  next_week_focus: string;
+  momentum_snapshot: Record<string, unknown>;
+  consistency_rate: number;
+  created_at: string;
+};
+
 // Minimal Supabase `Database` shape — enough for typed `.from("table")` calls
 // without needing a live project to run `supabase gen types` against yet.
 // `Relationships: []` on every table is required by @supabase/postgrest-js's
@@ -367,6 +380,12 @@ export type Database = {
         Row: ProcessedStripeEvent;
         Insert: Partial<ProcessedStripeEvent> & { event_id: string };
         Update: Partial<ProcessedStripeEvent>;
+        Relationships: [];
+      };
+      weekly_reviews: {
+        Row: WeeklyReview;
+        Insert: Partial<WeeklyReview> & { user_id: string; week_start: string; consistency_rate: number };
+        Update: Partial<WeeklyReview>;
         Relationships: [];
       };
     };
