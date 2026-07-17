@@ -8,6 +8,7 @@ const NAV = [
   { href: "/dashboard", label: "Home", fullOnly: false },
   { href: "/dashboard/coach", label: "Coach", fullOnly: true },
   { href: "/dashboard/habits", label: "Habits", fullOnly: true },
+  { href: "/dashboard/momentum", label: "Momentum", fullOnly: true },
   { href: "/dashboard/workout", label: "Workout", fullOnly: false },
   { href: "/dashboard/workout/history", label: "History", fullOnly: false },
   { href: "/dashboard/checkin", label: "Check-in", fullOnly: false },

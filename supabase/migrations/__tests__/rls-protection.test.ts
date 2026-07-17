@@ -41,3 +41,22 @@ describe("0001_init.sql profiles policy (static check)", () => {
     expect(sql).toMatch(/auth\.uid\(\)\s*=\s*id/);
   });
 });
+
+describe("0007_momentum_recovery_pillar.sql (static check)", () => {
+  const sql = readMigration("0007_momentum_recovery_pillar.sql");
+
+  it("adds an insert policy for momentum_scores scoped to the owner", () => {
+    expect(sql).toMatch(/create policy "momentum_scores: insert own" on public\.momentum_scores/);
+    expect(sql).toMatch(/for insert with check \(auth\.uid\(\) = user_id\)/);
+  });
+
+  it("adds an update policy for momentum_scores scoped to the owner", () => {
+    expect(sql).toMatch(/create policy "momentum_scores: update own" on public\.momentum_scores/);
+  });
+
+  it("allows habits_score/nutrition_score to be null and adds recovery_score", () => {
+    expect(sql).toMatch(/alter column habits_score drop not null/);
+    expect(sql).toMatch(/alter column nutrition_score drop not null/);
+    expect(sql).toMatch(/add column recovery_score int/);
+  });
+});

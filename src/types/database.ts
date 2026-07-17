@@ -178,9 +178,15 @@ export type MomentumScore = {
   id: string;
   user_id: string;
   score_date: string;
+  // Training and Consistency are always computed (a schedule and a 7-day
+  // activity window always exist). Habits/Nutrition/Recovery are null when
+  // the user has no active habits in that category yet / no check-ins yet
+  // — calculateMomentumScore excludes them from the weighted average
+  // rather than faking a value.
   training_score: number;
-  habits_score: number;
-  nutrition_score: number;
+  habits_score: number | null;
+  nutrition_score: number | null;
+  recovery_score: number | null;
   consistency_score: number;
   total_score: number;
   created_at: string;
@@ -345,8 +351,6 @@ export type Database = {
         Insert: Partial<MomentumScore> & {
           user_id: string;
           training_score: number;
-          habits_score: number;
-          nutrition_score: number;
           consistency_score: number;
           total_score: number;
         };
