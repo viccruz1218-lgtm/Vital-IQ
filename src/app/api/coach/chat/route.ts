@@ -38,6 +38,7 @@ export async function POST(request: Request) {
   await supabase
     .from("chat_messages")
     .insert({ user_id: user.id, context: "coach", role: "user", content: message });
+  await track(supabase, user.id, "ai_call", { route: "coach/chat" });
 
   const anthropic = getAnthropic();
   const response = await anthropic.messages.create({

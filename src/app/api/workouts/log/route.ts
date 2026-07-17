@@ -13,6 +13,13 @@ interface SetInput {
   weight_kg: number;
 }
 
+// workout_logs has no unique constraint (unlike habit_completion/check_ins,
+// which are legitimately once-per-day and use an upsert onConflict) — a user
+// can log multiple real sessions in a day, so a hard DB constraint would be
+// wrong here. This only guards the actual failure mode: an accidental
+// double-click or client retry landing within a few seconds of the first.
+const DUPLICATE_SUBMIT_WINDOW_MS = 10_000;
+
 export async function POST(request: Request) {
   const body = (await request.json()) as {
     planDayId?: string;
@@ -29,6 +36,22 @@ export async function POST(request: Request) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const recentCutoff = new Date(Date.now() - DUPLICATE_SUBMIT_WINDOW_MS).toISOString();
+  let recentQuery = supabase
+    .from("workout_logs")
+    .select("id")
+    .eq("user_id", user.id)
+    .gte("created_at", recentCutoff);
+  recentQuery = body.planDayId ? recentQuery.eq("plan_day_id", body.planDayId) : recentQuery.is("plan_day_id", null);
+  const { data: recentLog } = await recentQuery.limit(1).maybeSingle();
+
+  if (recentLog) {
+    return NextResponse.json(
+      { error: "This workout was already logged a moment ago — refresh before logging another." },
+      { status: 409 },
+    );
+  }
 
   const { data: workoutLog, error: logError } = await supabase
     .from("workout_logs")

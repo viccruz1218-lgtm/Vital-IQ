@@ -17,7 +17,8 @@ import type { Database } from "@/types/database";
 
 type Row = Record<string, unknown>;
 type Tables = Record<string, Row[]>;
-type ForceErrors = Partial<Record<string, { message: string }>>;
+type FakeError = { message: string; code?: string };
+type ForceErrors = Partial<Record<string, FakeError>>;
 
 function getPath(row: Row, path: string): unknown {
   return path.split(".").reduce<unknown>((acc, key) => {
@@ -65,6 +66,10 @@ export function createFakeSupabase(
         return query;
       },
       eq(col: string, val: unknown) {
+        rows = rows.filter((r) => getPath(r, col) === val);
+        return query;
+      },
+      is(col: string, val: null | boolean) {
         rows = rows.filter((r) => getPath(r, col) === val);
         return query;
       },
@@ -119,7 +124,7 @@ export function createFakeSupabase(
         const forced = forceErrors[`${table}.upsert`];
         if (forced) {
           rows = [];
-          (query as { __forcedError?: { message: string } }).__forcedError = forced;
+          (query as { __forcedError?: FakeError }).__forcedError = forced;
           return query;
         }
         const items = Array.isArray(payload) ? payload : [payload];
@@ -139,10 +144,24 @@ export function createFakeSupabase(
         const forced = forceErrors[`${table}.insert`];
         if (forced) {
           rows = [];
-          (query as { __forcedError?: { message: string } }).__forcedError = forced;
+          (query as { __forcedError?: FakeError }).__forcedError = forced;
           return query;
         }
         const items = Array.isArray(payload) ? payload : [payload];
+        // event_id is the one naturally-keyed column this test double knows
+        // about (processed_stripe_events.event_id is a real primary key) —
+        // simulate the unique-violation Postgres would raise, since the
+        // webhook idempotency logic branches on error.code === "23505".
+        for (const item of items) {
+          if (item.event_id !== undefined && tableRows.some((r) => r.event_id === item.event_id)) {
+            (query as { __forcedError?: { message: string; code: string } }).__forcedError = {
+              message: "duplicate key value violates unique constraint",
+              code: "23505",
+            };
+            rows = [];
+            return query;
+          }
+        }
         for (const item of items) tableRows.push({ id: item.id ?? `gen-${tableRows.length}`, ...item });
         rows = [...tableRows];
         return query;
@@ -151,8 +170,17 @@ export function createFakeSupabase(
         pendingUpdate = patch;
         return query;
       },
-      then(resolve: (v: { data: Row[] | null; error: { message: string } | null; count?: number }) => void) {
-        const forcedError = (query as { __forcedError?: { message: string } }).__forcedError;
+      delete() {
+        const matched = [...rows];
+        for (const r of matched) {
+          const idx = tableRows.indexOf(r);
+          if (idx >= 0) tableRows.splice(idx, 1);
+        }
+        rows = matched;
+        return query;
+      },
+      then(resolve: (v: { data: Row[] | null; error: FakeError | null; count?: number }) => void) {
+        const forcedError = (query as { __forcedError?: FakeError }).__forcedError;
         if (forcedError) {
           resolve({ data: null, error: forcedError });
           return;

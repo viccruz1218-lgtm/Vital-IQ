@@ -12,6 +12,7 @@ const { sessionTables, serviceRoleTables, anthropicCreateMock } = vi.hoisted(() 
     profiles: [] as Record<string, unknown>[],
     chat_messages: [] as Record<string, unknown>[],
     habits: [] as Record<string, unknown>[],
+    analytics_events: [] as Record<string, unknown>[],
   },
   serviceRoleTables: {
     profiles: [{ id: "user-1" }] as Record<string, unknown>[],
@@ -37,16 +38,17 @@ beforeEach(() => {
   sessionTables.profiles = [];
   sessionTables.chat_messages = [];
   sessionTables.habits = [];
+  sessionTables.analytics_events = [];
   serviceRoleTables.profiles = [{ id: "user-1" }];
 });
 
 describe("POST /api/onboarding/chat", () => {
   it("rejects once the caller is over the AI rate limit, without calling Anthropic", async () => {
-    // 20 user messages in the last minute already — at the limit.
-    sessionTables.chat_messages = Array.from({ length: 20 }, (_, i) => ({
-      id: `m${i}`,
+    // 20 AI calls in the last minute already — at the limit.
+    sessionTables.analytics_events = Array.from({ length: 20 }, (_, i) => ({
+      id: `e${i}`,
       user_id: "user-1",
-      role: "user",
+      event_name: "ai_call",
       created_at: new Date().toISOString(),
     }));
 

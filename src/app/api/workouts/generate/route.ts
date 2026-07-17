@@ -3,6 +3,8 @@ import { createClient } from "@/lib/supabase/server";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
 import { GENERATE_WORKOUT_PLAN_TOOL, planGenerationPrompt } from "@/lib/ai/persona";
 import { persistGeneratedPlan } from "@/lib/ai/plan";
+import { checkAiRateLimit } from "@/lib/rate-limit";
+import { track } from "@/lib/analytics";
 import type { Profile } from "@/types/database";
 
 export async function POST() {
@@ -12,8 +14,15 @@ export async function POST() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const rateLimit = await checkAiRateLimit(supabase, user.id);
+  if (!rateLimit.allowed) {
+    return NextResponse.json({ error: rateLimit.reason }, { status: 429 });
+  }
+
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
   if (!profile) return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+
+  await track(supabase, user.id, "ai_call", { route: "workouts/generate" });
 
   const anthropic = getAnthropic();
   const response = await anthropic.messages.create({
