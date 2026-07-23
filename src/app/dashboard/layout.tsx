@@ -12,6 +12,7 @@ const NAV = [
   { href: "/dashboard/weekly-review", label: "Weekly Review", fullOnly: true },
   { href: "/dashboard/workout", label: "Workout", fullOnly: false },
   { href: "/dashboard/workout/history", label: "History", fullOnly: false },
+  { href: "/dashboard/progress", label: "Progress", fullOnly: false },
   { href: "/dashboard/checkin", label: "Check-in", fullOnly: false },
   { href: "/dashboard/settings", label: "Settings", fullOnly: false },
 ];

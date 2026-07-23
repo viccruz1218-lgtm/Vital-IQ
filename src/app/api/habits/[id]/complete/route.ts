@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { completeHabit, uncompleteHabit } from "@/lib/habits";
 import { touchDaysSinceEvent } from "@/lib/days-since";
 import { calculateMomentumScore } from "@/lib/momentum";
+import { recordActivity } from "@/lib/streak";
 import { track } from "@/lib/analytics";
 
 export async function POST(request: Request, context: RouteContext<"/api/habits/[id]/complete">) {
@@ -25,6 +26,12 @@ export async function POST(request: Request, context: RouteContext<"/api/habits/
   }
 
   const result = await completeHabit(supabase, id);
+
+  // Any habit completion counts as "showed up today" for the global streak
+  // card on the dashboard, same as a workout log or check-in — previously
+  // only those two touched src/lib/streak.ts, so a habits-only user always
+  // saw 0 there despite an active habit streak.
+  await recordActivity(supabase, user.id);
 
   // Days Since mapping: workout and check-in come from their own unambiguous
   // tables (see workouts/log and checkin routes). Nutrition-category habits

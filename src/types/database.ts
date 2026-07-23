@@ -218,6 +218,14 @@ export type WeeklyReview = {
   created_at: string;
 };
 
+export type WeightLog = {
+  id: string;
+  user_id: string;
+  logged_date: string;
+  weight_kg: number;
+  created_at: string;
+};
+
 // Minimal Supabase `Database` shape — enough for typed `.from("table")` calls
 // without needing a live project to run `supabase gen types` against yet.
 // `Relationships: []` on every table is required by @supabase/postgrest-js's
@@ -386,6 +394,12 @@ export type Database = {
         Row: WeeklyReview;
         Insert: Partial<WeeklyReview> & { user_id: string; week_start: string; consistency_rate: number };
         Update: Partial<WeeklyReview>;
+        Relationships: [];
+      };
+      weight_logs: {
+        Row: WeightLog;
+        Insert: Partial<WeightLog> & { user_id: string; weight_kg: number };
+        Update: Partial<WeightLog>;
         Relationships: [];
       };
     };

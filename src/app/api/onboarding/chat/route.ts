@@ -67,26 +67,33 @@ export async function POST(request: Request) {
         const serviceRoleSupabase = createServiceRoleClient();
         const { error: profileError } = await serviceRoleSupabase
           .from("profiles")
-          .update({
-            // These are free text and get re-injected into every future coach
-            // system prompt (see coachSystemPrompt) — capped to bound how much
-            // user-controlled text can ride along in a persistent context.
-            identity_statement: input.identity_statement.slice(0, 300),
-            main_motivation: input.main_motivation.slice(0, 300),
-            quit_pattern: input.quit_pattern.slice(0, 300),
-            goal: input.goal,
-            fitness_level: input.fitness_level,
-            age: input.age,
-            height_cm: input.height_cm,
-            weight_kg: input.weight_kg,
-            equipment: input.equipment,
-            schedule_days_per_week: input.schedule_days_per_week,
-            injuries: input.injuries.slice(0, 300),
-            coaching_tone: input.coaching_tone,
-            onboarding_completed: true,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", user.id);
+          .upsert(
+            {
+              // id/email only matter if this profile row is missing (e.g. it
+              // was deleted out from under an in-progress signup) — upsert
+              // recreates it instead of silently no-op'ing like update() did.
+              id: user.id,
+              email: user.email ?? "",
+              // These are free text and get re-injected into every future coach
+              // system prompt (see coachSystemPrompt) — capped to bound how much
+              // user-controlled text can ride along in a persistent context.
+              identity_statement: input.identity_statement.slice(0, 300),
+              main_motivation: input.main_motivation.slice(0, 300),
+              quit_pattern: input.quit_pattern.slice(0, 300),
+              goal: input.goal,
+              fitness_level: input.fitness_level,
+              age: input.age,
+              height_cm: input.height_cm,
+              weight_kg: input.weight_kg,
+              equipment: input.equipment,
+              schedule_days_per_week: input.schedule_days_per_week,
+              injuries: input.injuries.slice(0, 300),
+              coaching_tone: input.coaching_tone,
+              onboarding_completed: true,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "id" },
+          );
         if (profileError) throw profileError;
 
         onboardingCompleted = true;

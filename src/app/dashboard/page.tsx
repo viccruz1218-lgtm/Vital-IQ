@@ -98,6 +98,13 @@ export default async function DashboardPage() {
         <p className="text-sm text-muted">Here&rsquo;s where things stand today.</p>
       </div>
 
+      {profile?.identity_statement && (
+        <Card>
+          <CardLabel>Who you&rsquo;re becoming</CardLabel>
+          <p className="mt-1 text-sm italic">&ldquo;{profile.identity_statement}&rdquo;</p>
+        </Card>
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <Card>
           <CardLabel>Streak</CardLabel>

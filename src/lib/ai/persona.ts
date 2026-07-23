@@ -1,4 +1,5 @@
 import { EXERCISE_NAMES } from "@/lib/exercises";
+import type { CoachContext } from "@/lib/ai/coach-context";
 import type { CoachingTone, FitnessLevel, Goal, HabitCategory, Profile } from "@/types/database";
 
 export interface OnboardingProfileInput {
@@ -148,13 +149,35 @@ Ask these in natural conversation, one or two at a time, in roughly this order:
 4. What usually causes you to quit? (their actual failure pattern — be specific, ask about the last time, not a hypothetical)
 5. What does your schedule look like? (schedule_days_per_week, and anything else relevant to injuries/equipment/fitness_level)
 
+This is exactly 5 questions — once the user gives a real, substantive answer to question 5, you have everything you need. Do not ask a 6th question, and do not ask anything further even if you think of something else that could be useful. Move straight to closing out: in the same turn, briefly summarize back what you learned (their identity statement and goal, 1-2 sentences), state plainly that you understand who they're becoming — a confirming statement, not a question, never "does that sound right?" — and call save_onboarding_profile. Don't wait for them to approve first.
+
 From the first two answers, write a single, first-person identity statement in their own voice, e.g. "I am becoming someone who consistently trains and takes care of my body." — this becomes identity_statement.
 
-You also still need, before calling the tool: fitness_level (beginner/intermediate/advanced), age (13-100), height_cm, weight_kg, equipment access (any of full_gym, dumbbells, bodyweight, bands, kettlebell), and coaching_tone preference (direct or encouraging). Weave these in naturally — accept units in kg/cm or lb/inches and convert yourself.
+You also still need, before calling the tool: fitness_level (beginner/intermediate/advanced), age (13-100), height_cm, weight_kg, equipment access (any of full_gym, dumbbells, bodyweight, bands, kettlebell), and coaching_tone preference (direct or encouraging). Weave these in naturally — accept units in kg/cm or lb/inches and convert yourself. If any of these is still missing once question 5 is answered, ask for just the missing piece before closing out — but never turn this into a 6th open-ended topic.
 
-Once you have every field, call save_onboarding_profile exactly once with all of it filled in — do not call it with partial data, and do not ask the user to confirm first. Immediately after, call seed_starter_habits with 1-2 habits (never more) that address the clearest gap between their identity statement and their current reality — for example, if their quit pattern is "I stop cooking and skip meals when work gets busy," seed a nutrition habit, not a generic one. Then tell them their first plan is being built.`;
+Once you have every field, call save_onboarding_profile exactly once with all of it filled in — do not call it with partial data. Immediately after, call seed_starter_habits with 1-2 habits (never more) that address the clearest gap between their identity statement and their current reality — for example, if their quit pattern is "I stop cooking and skip meals when work gets busy," seed a nutrition habit, not a generic one. Then tell them their first plan is being built.`;
 
-export function coachSystemPrompt(profile: Profile) {
+export function coachSystemPrompt(profile: Profile, context: CoachContext) {
+  const streakSummary = context.streak
+    ? `${context.streak.current_streak}-day current streak (best ${context.streak.longest_streak})`
+    : "no streak yet";
+  const momentumSummary = context.momentum
+    ? `${context.momentum.total_score}/100 as of ${context.momentum.score_date}`
+    : "not yet calculated";
+  const workoutsSummary =
+    context.recent_workouts.length > 0
+      ? context.recent_workouts.map((w) => `${w.performed_at} (${w.exercises.join(", ")})`).join("; ")
+      : "no workouts logged in the last 14 days";
+  const habitsSummary =
+    context.habits.length > 0
+      ? context.habits
+          .map(
+            (h) =>
+              `${h.name} [${h.category}, ${h.current_streak}-day streak, ${h.completed_today ? "done today" : "not done today"}]`,
+          )
+          .join("; ")
+      : "no active habits";
+
   return `${VI_IDENTITY}
 
 This user's Vital Contract:
@@ -171,7 +194,13 @@ Here is what you know about this user:
 - Injuries/limitations: ${profile.injuries || "none reported"}
 - Preferred tone: ${profile.coaching_tone}
 
-Reference their real history when it's relevant (a past lift, a streak, a missed day) instead of speaking generically. When a moment calls for it, connect what they're doing back to their identity statement — but only when it's earned by real data, never as a slogan. If they ask for a new or adjusted workout plan, call generate_workout_plan rather than describing the plan only in text.`;
+Their real recent activity — this is the actual data behind "reference their history," not a hint to make something up:
+- Streak: ${streakSummary}
+- Momentum score: ${momentumSummary}
+- Recent workouts (last 14 days): ${workoutsSummary}
+- Active habits: ${habitsSummary}
+
+Reference their real history when it's relevant (a past lift, a streak, a missed day) instead of speaking generically — use the actual data above, never a plausible-sounding guess. When a moment calls for it, connect what they're doing back to their identity statement — but only when it's earned by real data, never as a slogan. If they ask for a new or adjusted workout plan, call generate_workout_plan rather than describing the plan only in text.`;
 }
 
 // ---------------------------------------------------------------------------

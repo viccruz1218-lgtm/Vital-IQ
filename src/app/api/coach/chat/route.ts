@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAnthropic, COACH_MODEL } from "@/lib/ai/anthropic";
 import { coachSystemPrompt, GENERATE_WORKOUT_PLAN_TOOL, validateGeneratedPlanInput } from "@/lib/ai/persona";
+import { aggregateCoachContext } from "@/lib/ai/coach-context";
 import { persistGeneratedPlan } from "@/lib/ai/plan";
 import { track } from "@/lib/analytics";
 import { checkAiRateLimit } from "@/lib/rate-limit";
@@ -27,6 +28,8 @@ export async function POST(request: Request) {
   const { data: profile } = await supabase.from("profiles").select("*").eq("id", user.id).single();
   if (!profile) return NextResponse.json({ error: "Profile not found" }, { status: 404 });
 
+  const coachContext = await aggregateCoachContext(supabase, user.id);
+
   const { data: history } = await supabase
     .from("chat_messages")
     .select("role, content")
@@ -47,8 +50,14 @@ export async function POST(request: Request) {
     const anthropic = getAnthropic();
     const response = await anthropic.messages.create({
       model: COACH_MODEL,
-      max_tokens: 1024,
-      system: coachSystemPrompt(profile as Profile),
+      // 4096, matching /api/workouts/generate — this route's tool_choice is
+      // NOT forced (plain conversation is the common case), so when Claude
+      // does decide to call generate_workout_plan mid-conversation there's
+      // no guarantee it does so before spending tokens on chat text first.
+      // At 1024 a full multi-day plan's tool-call JSON got truncated
+      // mid-`days` array and failed validateGeneratedPlanInput every time.
+      max_tokens: 4096,
+      system: coachSystemPrompt(profile as Profile, coachContext),
       tools: [GENERATE_WORKOUT_PLAN_TOOL],
       messages: [
         ...(history ?? []).map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),

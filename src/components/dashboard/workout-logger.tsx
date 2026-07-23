@@ -128,6 +128,7 @@ export function WorkoutLogger({ planDayId, dayLabel, exercises }: Props) {
               target {ex.target_sets} × {ex.target_reps}
             </span>
           </div>
+          {ex.notes && <p className="mb-2 text-xs italic text-muted">{ex.notes}</p>}
           <div className="flex flex-col gap-2">
             {sets[ex.id].map((s, i) => (
               <div key={i} className="flex items-center gap-2">
